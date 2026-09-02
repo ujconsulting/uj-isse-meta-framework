@@ -115,8 +115,10 @@ def test_model_accessibility():
         print("❌ Missing GLOBANT_API_KEY or GLOBANT_ORG_ID")
         return False
     
-    print(f"🔑 Testing with API key: {api_key[:20]}...")
-    print(f"🏢 Organization ID: {org_id}")
+    # Never print key or org id material: this output ends up in terminals, CI logs and
+    # session notes, and this repository is public. Presence is all a validator needs.
+    print(f"🔑 API key: present ({len(api_key)} chars)")
+    print("🏢 Organization ID: present")
     
     working_models = []
     failed_models = []

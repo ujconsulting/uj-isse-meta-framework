@@ -262,22 +262,41 @@ class ParallelExecutionEngine:
                             )
                             result = await future
                     
-                    # Success - update counters and return
-                    self.completed_count += 1
-                    
+                    # The call returned — that is NOT the same as it having succeeded.
+                    # `_generate_model_response` returns a failure record rather than
+                    # raising, so nothing below this point sees an exception for an
+                    # HTTP 400. Until 2026-09-02 this block incremented `completed_count`
+                    # unconditionally under the comment "# Success", while `success` was
+                    # computed two lines further down and never used to gate it — so
+                    # `success_rate` (see get_progress) read 100% for a run in which every
+                    # single call had failed.
+                    success = (
+                        result.get("status") != "failed"
+                        and result.get("response") is not None
+                        and not result.get("error")
+                    )
+                    result["attempts"] = attempt + 1
+
+                    if success:
+                        self.completed_count += 1
+                    else:
+                        self.failed_count += 1
+
                     if self.json_progress:
-                        success = result.get("response") is not None and not result.get("error")
+                        err = result.get("error") or {}
                         progress_info = {
                             "type": "combination_complete_parallel",
                             "combination_id": combo_id,
                             "success": success,
                             "attempt": attempt + 1,
-                            "response_length": len(result.get("response", "")) if success else 0,
+                            "response_length": len(result.get("response") or "") if success else 0,
+                            "error_kind": err.get("kind") if isinstance(err, dict) else "error",
+                            "status_code": err.get("status_code") if isinstance(err, dict) else None,
                             "timestamp": datetime.now().isoformat()
                         }
                         print(f"PROGRESS_JSON:{json.dumps(progress_info)}")
                         sys.stdout.flush()
-                    
+
                     return result
                     
                 except Exception as e:
@@ -1009,12 +1028,21 @@ class ISEEApplication:
         return self.provider_manager.get_provider_status()
     
     def save_raw_response(self, result: Dict[str, Any], combination: Dict[str, Any]) -> None:
-        """Save raw response text to individual files."""
+        """Save raw response text to individual files.
+
+        A failed combination gets a file under `failed_responses/`, never one under
+        `raw_responses/`. The two directories are read by different consumers and the
+        distinction is load-bearing: `cognitive_diversity_extractor.py` indexes
+        everything in `raw_responses/`, so a failure written there is scored, ranked and
+        presented as one of the perspectives the run discovered. It previously wrote the
+        literal string "Response not available" into that directory.
+        """
         try:
-            # Create responses directory
-            responses_dir = Path(self.output_directory) / "raw_responses"
+            failed = result.get("status") == "failed" or result.get("response") is None
+            subdir = "failed_responses" if failed else "raw_responses"
+            responses_dir = Path(self.output_directory) / subdir
             responses_dir.mkdir(exist_ok=True)
-            
+
             # Generate filename
             combo_id = result.get("combination_id", "unknown")
             model_name = combination.get("model", "unknown").replace("/", "_")
@@ -1035,8 +1063,19 @@ class ISEEApplication:
                 f.write(f"**Duration:** {result.get('metadata', {}).get('duration', 'Unknown')}s\n\n")
                 f.write(f"## Prompt Sent to Model\n\n")
                 f.write(f"```\n{result.get('prompt', 'Prompt not available')}\n```\n\n")
-                f.write(f"## Raw Response\n\n")
-                f.write(result.get("response", "Response not available"))
+                if failed:
+                    err = result.get("error", {}) or {}
+                    f.write("## FAILED — no response was produced\n\n")
+                    f.write(f"**Kind:** {err.get('kind', 'unknown')}\n")
+                    f.write(f"**HTTP status:** {err.get('status_code', 'n/a')}\n")
+                    f.write(f"**Retryable:** {err.get('retryable', 'unknown')}\n")
+                    f.write(f"**Error type:** {err.get('error_type', 'unknown')}\n\n")
+                    f.write(f"```\n{err.get('message', 'no message')}\n```\n")
+                    if err.get("response_preview"):
+                        f.write(f"\n**Body preview:**\n\n```\n{err['response_preview']}\n```\n")
+                else:
+                    f.write(f"## Raw Response\n\n")
+                    f.write(result["response"])
                 
         except Exception as e:
             print(f"Warning: Failed to save raw response for {combo_id}: {e}")
@@ -1353,40 +1392,61 @@ class ISEEApplication:
         
         response_text = ""
         start_time = time.time()
-        
+
+        # ⛔ A failure here is recorded as a failure. It is NOT quietly replaced by a
+        # simulated answer.
+        #
+        # Until 2026-09-02 all three branches below returned
+        # `_simulate_model_response(...)`, so a run in which every model answered with
+        # HTTP 400 produced a complete, plausible, entirely fabricated report — and the
+        # summary called it a success. Simulation is available deliberately, via
+        # `--simulate`; it must never be the consolation prize for a broken call.
         try:
             if client:
                 # Use the real API client
                 print(f"Making real API call to {model_id}...")
                 response_text = client.generate(prompt, model_params)
                 print(f"Received response from {model_id} (length: {len(response_text)} chars)")
-                
-                # Check if response is actually an error
+
+                # Some providers return an error *as* a 200 body; the detector catches those.
                 is_error, error_reason = self.error_detector.is_api_error(response_text)
                 if is_error:
-                    print(f"⚠️  API Error detected for {model_id}: {error_reason}")
-                    print(f"   Response preview: {response_text[:100]}...")
-                    # Return simulation instead of the error
-                    print(f"   Falling back to simulation for {model_id}")
-                    return self._simulate_model_response(combination, template, query, domain)
-                
+                    print(f"❌ API error detected for {model_id}: {error_reason}")
+                    return self._failed_model_response(
+                        combination, prompt, model_id, template_style, start_time,
+                        kind="api_error_in_body",
+                        message=error_reason,
+                        preview=response_text[:200],
+                    )
+
             else:
-                # Fall back to simulation if client creation failed
-                print(f"Warning: Using simulated response for {model_id} due to missing client")
-                return self._simulate_model_response(combination, template, query, domain)
-        
+                print(f"❌ No API client for {model_id} — check the key named in `requires`.")
+                return self._failed_model_response(
+                    combination, prompt, model_id, template_style, start_time,
+                    kind="no_client",
+                    message=f"No API client could be created for model '{model_id}'",
+                )
+
         except Exception as e:
-            # Handle API errors gracefully
-            error_message = str(e)
-            print(f"Error calling API for {model_id}: {error_message}")
-            print(f"Falling back to simulation for {model_id}")
-            return self._simulate_model_response(combination, template, query, domain)
-        
+            detail = e.as_dict() if hasattr(e, "as_dict") else {}
+            status = detail.get("status_code")
+            print(f"❌ API call failed for {model_id}"
+                  f"{f' (HTTP {status})' if status else ''}: {e}")
+            return self._failed_model_response(
+                combination, prompt, model_id, template_style, start_time,
+                kind="exception",
+                message=str(e),
+                status_code=status,
+                retryable=detail.get("retryable"),
+                error_type=detail.get("error_type", type(e).__name__),
+            )
+
         end_time = time.time()
         duration = end_time - start_time
-        
+
         return {
             "combination_id": combination["id"],
+            "status": "succeeded",
             "prompt": prompt,
             "response": response_text,
             "metadata": {
@@ -1395,6 +1455,74 @@ class ISEEApplication:
                 "timestamp": time.time(),
                 "duration": duration
             }
+        }
+
+    @staticmethod
+    def _partition_successful(
+        results: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Split results into (successful, ids_of_failed).
+
+        A result counts as successful only if it was not marked failed AND actually
+        carries response text. Both conditions are checked because records written before
+        the `status` field existed have no `status` key.
+        """
+        ok: Dict[str, Any] = {}
+        failed: List[str] = []
+        for combo_id, result in results.items():
+            if (
+                isinstance(result, dict)
+                and result.get("status") != "failed"
+                and result.get("response")
+                and not result.get("error")
+            ):
+                ok[combo_id] = result
+            else:
+                failed.append(str(combo_id))
+        return ok, failed
+
+    def _failed_model_response(
+        self,
+        combination: Dict[str, Any],
+        prompt: str,
+        model_id: str,
+        template_style: str,
+        start_time: float,
+        *,
+        kind: str,
+        message: str,
+        status_code: Optional[int] = None,
+        retryable: Optional[bool] = None,
+        error_type: Optional[str] = None,
+        preview: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build the record for a combination that did not produce a response.
+
+        `response` is None, never a placeholder string: anything else is eventually
+        scored, ranked and reported as though a model had said it. `status` is the field
+        every consumer should branch on — `response is None` is the same signal, kept for
+        the readers that predate this.
+        """
+        return {
+            "combination_id": combination["id"],
+            "status": "failed",
+            "prompt": prompt,
+            "response": None,
+            "error": {
+                "kind": kind,
+                "message": message,
+                "status_code": status_code,
+                "retryable": retryable,
+                "error_type": error_type,
+                "model": model_id,
+                "response_preview": preview,
+            },
+            "metadata": {
+                "model": model_id,
+                "template_style": template_style,
+                "timestamp": time.time(),
+                "duration": time.time() - start_time,
+            },
         }
     
     def _simulate_model_response(
@@ -1484,12 +1612,23 @@ class ISEEApplication:
         if not results:
             print("No results to evaluate")
             return {}
-        
+
+        # Failed combinations carry `response: None` and must not reach the scorer. They
+        # are dropped here rather than at each access site so that the count of what was
+        # excluded is reported once, in one place, instead of being silently absent.
+        results, skipped = self._partition_successful(results)
+        if skipped:
+            print(f"⚠️  Excluding {len(skipped)} failed combination(s) from evaluation: "
+                  f"{', '.join(sorted(skipped)[:5])}{' …' if len(skipped) > 5 else ''}")
+        if not results:
+            print("❌ No successful results to evaluate — every combination failed.")
+            return {}
+
         evaluations = {}
-        
+
         for combo_id, result in results.items():
             text = result["response"]
-            
+
             # Score the text
             scores = self.scoring_framework.score_text(text)
             
@@ -1652,11 +1791,26 @@ class ISEEApplication:
         """
         if top_results is None:
             top_results = self.get_top_results(n=10)
-        
+
         if not top_results:
             print("No results to synthesize")
             return {}
-        
+
+        # Defence in depth: results reaching here via `get_top_results` were already
+        # filtered by `evaluate_results`, but this parameter is public and a caller may
+        # pass raw results. Synthesis reads `result["response"]` unconditionally in two
+        # places below, so a failure record would raise here.
+        before = len(top_results)
+        top_results = [
+            (r, s) for (r, s) in top_results
+            if isinstance(r, dict) and r.get("status") != "failed" and r.get("response")
+        ]
+        if len(top_results) != before:
+            print(f"⚠️  Excluding {before - len(top_results)} failed result(s) from synthesis")
+        if not top_results:
+            print("❌ No successful results to synthesize.")
+            return {}
+
         print(f"Synthesizing ideas from {len(top_results)} top results using {method} method")
         
         # In a real implementation, this would use sophisticated NLP techniques

@@ -1000,10 +1000,39 @@ class ISEEWebDemo:
                     
                     # Markdown display available via View Results button
                 
+                # Exit code 0 means the process ran to completion, not that the analysis
+                # succeeded. Individual model calls fail independently and are persisted
+                # as failures; reporting that as an unqualified success is how a run in
+                # which nothing worked came to be presented as a finished analysis.
+                st = self.execution_status[execution_id]
+                failed = st.get("failed_combinations", 0)
+                succeeded = st.get("succeeded_combinations", 0)
+                total = st.get("total_combinations", 0)
+
+                if failed and succeeded == 0:
+                    run_status = "failed"
+                    completion_message = (
+                        f"❌ Every one of the {failed} model call(s) failed. "
+                        "No analysis was produced. See failed_responses/ in the run "
+                        "directory for the per-call errors."
+                    )
+                elif failed:
+                    run_status = "completed_with_failures"
+                    completion_message = (
+                        f"⚠️ Completed with {failed} of {total or failed + succeeded} "
+                        f"model call(s) failed — the analysis rests on {succeeded} "
+                        f"response(s). See failed_responses/ for the errors.\n\n"
+                        + completion_message
+                    )
+                else:
+                    run_status = "completed"
+
                 self.execution_status[execution_id].update({
-                    "status": "completed",
+                    "status": run_status,
                     "progress": 100,
                     "message": completion_message,
+                    "failed_combinations": failed,
+                    "succeeded_combinations": succeeded,
                     "results_file": str(output_file),
                     # HTML report generation removed - using markdown display only
                     "run_directory": run_directory,
@@ -1326,6 +1355,22 @@ class ISEEWebDemo:
                                     json_str = line[14:]  # Remove "PROGRESS_JSON:" prefix
                                     progress_data = json.loads(json_str)
                                     
+                                    # Failure accounting. `main.py` reports per-combination
+                                    # outcomes and a final tally; without reading them the
+                                    # only completion signal here is the subprocess exit
+                                    # code, which is 0 for a run in which every single
+                                    # call failed — the UI then said "completed
+                                    # successfully" over an entirely fabricated report.
+                                    if progress_data.get("type") == "parallel_execution_complete":
+                                        self.execution_status[execution_id].update({
+                                            "failed_combinations": progress_data.get("failed", 0),
+                                            "succeeded_combinations": progress_data.get("completed", 0),
+                                        })
+                                    elif (progress_data.get("type") == "combination_complete_parallel"
+                                          and progress_data.get("success") is False):
+                                        st = self.execution_status[execution_id]
+                                        st["failed_combinations"] = st.get("failed_combinations", 0) + 1
+
                                     if progress_data["type"] == "execution_start":
                                         total_combinations = progress_data["total_combinations"]
                                         self.execution_status[execution_id].update({
@@ -1333,9 +1378,11 @@ class ISEEWebDemo:
                                             "message": f"Starting execution of {total_combinations} LLM calls...",
                                             "total_combinations": total_combinations,
                                             "completed_combinations": 0,
+                                            "failed_combinations": 0,
+                                            "succeeded_combinations": 0,
                                             "current_calls": []
                                         })
-                                        
+
                                     elif progress_data["type"] in ["combination_start", "combination_start_parallel"]:
                                         # Handle both sequential and parallel execution modes
                                         current_time = datetime.now()
@@ -2139,7 +2186,7 @@ def api_download(execution_id):
     # User Behavior Analytics - Track result download
     user_session = session.get('session_id', 'anonymous')
     execution_duration = None
-    if status.get("start_time") and status.get("status") == "completed":
+    if status.get("start_time") and status.get("status") in ("completed", "completed_with_failures"):
         start_time = datetime.fromisoformat(status["start_time"].replace('Z', '+00:00'))
         execution_duration = (datetime.now() - start_time).total_seconds()
     
@@ -2184,7 +2231,7 @@ def api_download_zip(execution_id):
     # User Behavior Analytics - Track ZIP download
     user_session = session.get('session_id', 'anonymous')
     execution_duration = None
-    if status.get("start_time") and status.get("status") == "completed":
+    if status.get("start_time") and status.get("status") in ("completed", "completed_with_failures"):
         start_time = datetime.fromisoformat(status["start_time"].replace('Z', '+00:00'))
         execution_duration = (datetime.now() - start_time).total_seconds()
     

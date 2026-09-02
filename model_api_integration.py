@@ -32,8 +32,46 @@ except ImportError:
     GOOGLE_AI_AVAILABLE = False
 
 class APIIntegrationError(Exception):
-    """Base exception for API integration errors."""
-    pass
+    """Base exception for API integration errors.
+
+    Carries the structured detail a caller needs to record a failure honestly.
+    Before this existed, `_handle_error` dropped the HTTP status whenever the
+    provider returned a JSON error body, so a 400 (bad parameter) and a 502
+    (provider down) reached the caller as indistinguishable strings — which is
+    part of why failures were easier to hide than to report.
+
+    All fields are optional and default to None, so existing
+    `raise APIIntegrationError("message")` call sites keep working unchanged.
+    `status_code` is None only when the failure happened before an HTTP response
+    existed (connection error, timeout, malformed request).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: Optional[int] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        retryable: Optional[bool] = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.provider = provider
+        self.model = model
+        self.retryable = retryable
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return the error as a plain dict for persisting in a result record."""
+        return {
+            "message": self.message,
+            "status_code": self.status_code,
+            "provider": self.provider,
+            "model": self.model,
+            "retryable": self.retryable,
+            "error_type": type(self).__name__,
+        }
 
 class RateLimitError(APIIntegrationError):
     """Exception for rate limit exceeded errors."""
@@ -111,23 +149,35 @@ class ModelAPIClient:
             error_message = error_data.get("error", {}).get("message", "Unknown API error")
         except (ValueError, KeyError):
             error_message = f"API error: {response.status_code} - {response.text[:100]}"
-        
+
+        # The status code travels with every error from here on. A 400 (we sent a
+        # parameter the model rejects) and a 502 (the provider is down) demand opposite
+        # responses, and until this carried the code they arrived as the same string.
+        status = response.status_code
+        detail = {
+            "status_code": status,
+            "provider": getattr(self, "provider_name", None) or type(self).__name__,
+        }
+
         # Classify error types
-        if response.status_code == 429:
+        if status == 429:
             # Rate limit exceeded
-            raise RateLimitError(f"Rate limit exceeded: {error_message}")
-        elif response.status_code in [408, 504, 524]:
+            raise RateLimitError(f"Rate limit exceeded: {error_message}", retryable=True, **detail)
+        elif status in [408, 504, 524]:
             # Timeout errors
-            raise APITimeoutError(f"API timeout: {error_message}")
+            raise APITimeoutError(f"API timeout: {error_message}", retryable=True, **detail)
         elif "rate limit" in error_message.lower():
             # Rate limit in message body
-            raise RateLimitError(f"Rate limit exceeded: {error_message}")
+            raise RateLimitError(f"Rate limit exceeded: {error_message}", retryable=True, **detail)
         elif "timeout" in error_message.lower():
             # Timeout in message body
-            raise APITimeoutError(f"API timeout: {error_message}")
+            raise APITimeoutError(f"API timeout: {error_message}", retryable=True, **detail)
         else:
-            # General API error
-            raise APIIntegrationError(error_message)
+            # General API error. 4xx other than the two above means the request itself is
+            # wrong (bad model id, unsupported parameter) — retrying it changes nothing.
+            raise APIIntegrationError(
+                error_message, retryable=not (400 <= status < 500), **detail
+            )
 
 
 class AnthropicClient(ModelAPIClient):

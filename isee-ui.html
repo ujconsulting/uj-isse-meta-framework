@@ -2726,9 +2726,14 @@
                 const status = await response.json();
                 updateProgressUI(status);
 
-                if (status.status === 'completed') {
+                // 'completed_with_failures' means the run finished and produced results,
+                // but some model calls failed — the results are real and worth showing,
+                // with the shortfall stated. It must be handled alongside 'completed':
+                // a strict equality check here would leave such a run polling forever.
+                // 'failed' means every call failed and there is nothing to display.
+                if (status.status === 'completed' || status.status === 'completed_with_failures') {
                     handleCompletion(status);
-                } else if (status.status === 'error') {
+                } else if (status.status === 'error' || status.status === 'failed') {
                     handleError(status);
                 } else if (status.status === 'running' || status.status === 'starting') {
                     // Continue polling
