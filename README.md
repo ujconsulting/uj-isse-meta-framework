@@ -2,7 +2,7 @@
 
 **The Idea Synthesis and Extraction Engine • Systematic Multi-Perspective Research Platform**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Flask](https://img.shields.io/badge/flask-2.0+-green.svg)](https://flask.palletsprojects.com/)
 
@@ -12,8 +12,8 @@
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/joseph-fajen/ISEE_Meta_Framework.git
-cd ISEE_Meta_Framework
+git clone https://github.com/ujconsulting/uj-isse-meta-framework.git
+cd uj-isse-meta-framework
 pip install -r requirements.txt
 
 # 2. Configure API access
@@ -110,8 +110,8 @@ Cluster-based organization revealing complementary, contradictory, and emergent 
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/joseph-fajen/ISEE_Meta_Framework.git
-cd ISEE_Meta_Framework
+git clone https://github.com/ujconsulting/uj-isse-meta-framework.git
+cd uj-isse-meta-framework
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -364,7 +364,40 @@ ISEE_Meta_Framework/
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Licensed under the **Apache License, Version 2.0** — see the [LICENSE](LICENSE) file for
+the full text, or <https://www.apache.org/licenses/LICENSE-2.0>.
+
+> **Note on a discrepancy inherited from upstream:** the upstream README declared the MIT
+> License while the `LICENSE` file invoked Apache-2.0, and that `LICENSE` file contained
+> only the Apache appendix boilerplate rather than the license text itself. This fork
+> resolves the contradiction in favour of the `LICENSE` file, which is the operative
+> grant, and ships the complete Apache-2.0 text so recipients actually receive a copy of
+> the license as Section 4(a) requires. The original copyright line is preserved
+> unchanged. No relicensing is intended or claimed.
+
+---
+
+## 🍴 About This Fork
+
+This repository is a fork of
+**[joseph-fajen/ISEE_Meta_Framework](https://github.com/joseph-fajen/ISEE_Meta_Framework)**,
+maintained by UJ Consulting for internal research use.
+
+Original work: Copyright 2025 **Joseph Fajen**, licensed under Apache-2.0. All copyright,
+attribution and license notices from the original work are retained.
+
+**Modifications in this fork** (Apache-2.0 §4(b) notice — files changed relative to
+upstream `main`):
+
+| File | Change |
+| --- | --- |
+| `LICENSE` | Replaced the 19-line appendix stub with the complete Apache-2.0 text; original copyright line preserved verbatim |
+| `README.md` | Corrected the license statement (MIT → Apache-2.0), added this fork and modification notice, pointed the clone instructions at this fork |
+| `CLAUDE.md` | Added a pointer to the cross-model plan-review workflow |
+| `.gitignore` | Added entries for review working files |
+| `AGENTS.md`, `.codex/`, `tools/` | New files added by this fork; not present upstream |
+
+Upstream is not responsible for, and does not endorse, these modifications.
 
 ---
 
