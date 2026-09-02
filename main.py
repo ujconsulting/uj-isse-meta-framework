@@ -2298,9 +2298,15 @@ class ISEEApplication:
                         domain_ids.append(domain_name)
                         print(f"Using domain ID: {domain_name}")
                     else:
-                        print(f"Error: Invalid domain ID '{domain_name}'")
-                        print(f"Tip: Use --list-domains to see all available domain IDs.")
-                        return
+                        # Raise rather than `return`. A bare return here handed None
+                        # back from run_complete_pipeline, and the caller concatenated it
+                        # onto the report header — so an invalid domain surfaced as
+                        # "TypeError: can only concatenate str (not NoneType) to str",
+                        # naming neither the domain nor this check.
+                        raise ValueError(
+                            f"Invalid domain ID {domain_name!r}. "
+                            f"Use --list-domains to see the available domain IDs."
+                        )
                 else:
                     # Domain name provided - find exact match
                     all_domains = self.domain_manager.list_domains()
@@ -2309,9 +2315,10 @@ class ISEEApplication:
                         domain_ids.append(exact_matches[0].id)
                         print(f"Found exact match for '{domain_name}' -> {exact_matches[0].id}")
                     else:
-                        print(f"Error: No exact match found for domain '{domain_name}'")
-                        print(f"Tip: Use --list-domains to see all available domain names.")
-                        return
+                        raise ValueError(
+                            f"No domain named {domain_name!r}. "
+                            f"Use --list-domains to see the available domain names."
+                        )
         
         # Process dynamic domains (no validation - used as contextual guidance)
         if dynamic_domain_names:

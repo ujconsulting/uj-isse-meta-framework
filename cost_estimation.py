@@ -167,6 +167,23 @@ class CostEstimator:
         """Initialize the cost estimator."""
         self.models_info = self._load_models_info()
     
+    @staticmethod
+    def _model_is_usable(model: Dict[str, Any]) -> bool:
+        """Whether a configured model should be considered at all.
+
+        Only the explicit `disabled` flag. An earlier version of this also required the
+        model's `requires` environment variable to be set — which looked principled and
+        was a trap: this module never loads `.env`, so in any context that had not already
+        imported the API layer the check silently emptied the pool and the estimator fell
+        back to five hardcoded models from 2024. A filter whose failure mode is "quietly
+        estimate something else" is worse than no filter.
+
+        Which models are actually reachable is decided where the credentials live, not
+        here. Preferring the ones we can price is handled in
+        `_get_available_models_for_params`.
+        """
+        return not model.get("disabled")
+
     def _load_models_info(self) -> Dict[str, Dict[str, Any]]:
         """Load models information from configuration files.
         
@@ -195,17 +212,15 @@ class CostEstimator:
                 if "models" in config:
                     # Check if models is a dictionary with sections or a flat list
                     if isinstance(config["models"], dict):
-                        if "api_models" in config["models"]:
-                            for model in config["models"]["api_models"]:
-                                models_info[model.get("id")] = model
-                        
-                        if "ollama_models" in config["models"]:
-                            for model in config["models"]["ollama_models"]:
-                                models_info[model.get("id")] = model
+                        for section in ("api_models", "ollama_models"):
+                            for model in config["models"].get(section, []):
+                                if self._model_is_usable(model):
+                                    models_info[model.get("id")] = model
                     else:
                         # Handle flat list of models
                         for model in config["models"]:
-                            models_info[model.get("id")] = model
+                            if self._model_is_usable(model):
+                                models_info[model.get("id")] = model
             except Exception:
                 # Skip files with errors
                 continue
@@ -540,10 +555,45 @@ class CostEstimator:
             List of model information dictionaries.
         """
         models_to_use = []
-        
+
+        # If the caller named the models, price THOSE. Nothing below this point knows
+        # which models were actually selected: it takes the first N of a pool merged from
+        # every *config*.json in the working directory, so a request selecting three
+        # OpenRouter models was quoted for 'Claude Sonnet 4', 'GPT-4 Turbo' and
+        # 'Gemini 2.5 Pro' — the first three entries of globant_enterprise_config.json,
+        # a provider this installation cannot even reach.
+        selected_ids = (params.get("selected_models") or params.get("selected_model_ids")
+                        or params.get("models_selected"))
+        if selected_ids:
+            if isinstance(selected_ids, str):
+                selected_ids = [s.strip() for s in selected_ids.split(",") if s.strip()]
+            wanted = set(selected_ids)
+            chosen = [
+                info for mid, info in self.models_info.items()
+                if mid in wanted
+                or info.get("id") in wanted
+                or info.get("parameters", {}).get("model") in wanted
+            ]
+            if chosen:
+                return chosen
+            logging.getLogger(__name__).warning(
+                "None of the selected model ids %s were found in the loaded "
+                "configurations; falling back to a portfolio-wide estimate.", sorted(wanted)
+            )
+
+        # Nothing was named, so this is a portfolio-wide estimate. Prefer the models whose
+        # price we actually know — every *config*.json in the directory is merged into one
+        # pool, so without this the estimate for an OpenRouter run could be built from
+        # globant_enterprise_config.json entries, priced from a stale static table, for a
+        # provider this installation has no credentials for.
+        priced = [m for m in self.models_info.values() if isinstance(m.get("pricing"), dict)]
+        if priced:
+            models_count = params.get("models", 2)
+            return priced[:max(1, int(models_count))]
+
         # Check how many models should be used
         models_count = params.get("models", 2)
-        
+
         # Check if we should use Ollama models
         use_ollama = params.get("use_ollama", False)
         

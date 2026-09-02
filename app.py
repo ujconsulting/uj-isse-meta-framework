@@ -127,54 +127,54 @@ class ISEEWebDemo:
             strategic_only: Whether to return only strategically curated models (True) or all models (False)
         """
         try:
-            # First, try to get models from the rankings service
-            if use_cached:
-                # Get models synchronously from cache (fast)
-                cache_status = self.rankings_service.get_cache_status()
-                if cache_status["cache_exists"] and not cache_status["needs_update"]:
-                    cache_data = self.rankings_service._load_cache()
-                    if cache_data and cache_data.models:
-                        models = cache_data.models.copy()
-                        
-                        # Add ranking positions to cached models (OpenRouter rankings)
-                        for i, model in enumerate(models):
-                            model["ranking_position"] = i + 1
-                            model["is_top_performer"] = i < 10  # Top 10 get special highlighting
-                        
-                        # Add dynamic Ollama models to cached rankings
-                        try:
-                            api_status = self._detect_apis()
-                            ollama_models = api_status.get("ollama_models", [])
-                            if ollama_models:
-                                existing_ids = {m["id"] for m in models}
-                                ollama_count = len(models)  # Start Ollama numbering after ranked models
-                                for ollama_model in ollama_models:
-                                    model_id = ollama_model
-                                    if model_id not in existing_ids:
-                                        models.append({
-                                            "id": model_id,
-                                            "name": f"Ollama {model_id}",
-                                            "provider": "Ollama",
-                                            "model_param": model_id,
-                                            "cost_tier": "free",
-                                            "features": ["local", "free", "dynamic"],
-                                            "description": f"Local Ollama model: {model_id}",
-                                            "ranking_position": None,  # Ollama models not ranked
-                                            "is_top_performer": False
-                                        })
-                                        self.logger.debug(f"Added dynamic Ollama model to cached list: {model_id}")
-                        except Exception as e:
-                            self.logger.error(f"Error adding Ollama models to cached rankings: {e}")
-                        
-                        self.logger.info(f"Using cached rankings (performance-based order) with Ollama integration: {len(models)} models")
-                        
-                        # Apply strategic filtering if requested
-                        if strategic_only:
-                            models = self._filter_strategic_models(models)
-                            self.logger.info(f"Filtered to {len(models)} strategic models")
-                        
-                        return models
-            
+            # ⛔ The CONFIGURATION decides which models exist. Not the rankings cache.
+            #
+            # This used to consult OpenRouterRankingsService first and fall back to the
+            # configuration only when its cache was stale. That inverted the authority:
+            # one call to /api/models-fresh repopulated the cache from the live
+            # OpenRouter leaderboard, and the picker then offered 20 models of which 19
+            # were not configured — while `strategic_only` collapsed to a single card,
+            # because ui_priority exists only on configured entries. The framework can
+            # only call what openrouter_config.json defines; offering anything else
+            # produces a run that fails at call time for a reason the user cannot see.
+            #
+            # Rankings are still welcome as METADATA — position and top-performer flags
+            # are merged onto configured models below — but never as a source of models.
+            # (CLAUDE.md has described this service as "legacy, no longer used" for some
+            # time; it was in fact the primary source.)
+            models = self._get_fallback_models()
+
+            if use_cached and models:
+                try:
+                    cache_status = self.rankings_service.get_cache_status()
+                    if cache_status["cache_exists"] and not cache_status["needs_update"]:
+                        cache_data = self.rankings_service._load_cache()
+                        ranked = {}
+                        for i, rm in enumerate(cache_data.models if cache_data else []):
+                            key = rm.get("model_param") or rm.get("id")
+                            if key:
+                                ranked[key] = i + 1
+                        merged = 0
+                        for m in models:
+                            pos = ranked.get(m.get("model_param")) or ranked.get(m.get("id"))
+                            if pos:
+                                m["ranking_position"] = pos
+                                m["is_top_performer"] = pos <= 10
+                                merged += 1
+                        self.logger.info(
+                            "Merged ranking metadata onto %d of %d configured models",
+                            merged, len(models))
+                except Exception as e:
+                    # Ranking metadata is a nicety; its absence must not affect which
+                    # models are offered.
+                    self.logger.warning("Could not merge ranking metadata: %s", e)
+
+            if strategic_only:
+                models = self._filter_strategic_models(models)
+                self.logger.info(f"Filtered to {len(models)} strategic models")
+
+            return models
+
             # Fallback to config-based models + hardcoded fallback
             self.logger.info("Using fallback model loading approach")
             fallback_models = self._get_fallback_models()
@@ -738,13 +738,28 @@ class ISEEWebDemo:
             self.logger.debug(f"Environment variables set: {[k for k in env.keys() if 'API_KEY' in k]}")
             
             # Execute command with unbuffered output for real-time monitoring
+            # The child writes UTF-8 (main.py reconfigures its streams). Without saying so
+            # here, the PARENT decodes with locale.getpreferredencoding(), which is cp1252
+            # on Windows — and the consequence is worse than a mangled character.
+            #
+            # TextIOWrapper decodes in 8 KB chunks, so one undefined byte discards the
+            # WHOLE CHUNK, not just its line. main.py prints "🏁 Parallel execution
+            # completed" 149 bytes after the `parallel_execution_complete` PROGRESS_JSON
+            # line — same chunk — so the run tally was silently lost and
+            # succeeded_combinations stayed 0 after three successful calls. The error was
+            # swallowed by a broad `except` further down and appeared only as a DEBUG line.
+            #
+            # errors="replace" is the second half: a decode problem must degrade one
+            # character, never a block of progress events. Emoji sit right next to the
+            # ❌ failure prints, which is exactly where losing a chunk would matter most.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,  # Line buffered
-                universal_newlines=True,
                 cwd=Path(__file__).parent,
                 env=env
             )
@@ -1003,11 +1018,18 @@ class ISEEWebDemo:
                 self.logger.warning(f"No matching domain found for '{domain_name}', using as-is")
                 converted["domain"] = domain_name
         
-        # Fallback if no domains were resolved
+        # No domain resolved: pass none, and let the engine select domains the way it does
+        # for a CLI run without --domain.
+        #
+        # This used to invent the placeholder "Technology", which is not a domain — the
+        # configuration has `domain_technology` / "Technology Innovation". main.py then
+        # returned early from run_complete_pipeline without an error, the caller
+        # concatenated None onto a string, and the run died with
+        # `TypeError: can only concatenate str (not "NoneType") to str` and an empty run
+        # directory. Every web run that reached this fallback failed that way.
         if not domain_ids and not web_params.get("domain"):
-            # Use a simple, safe domain placeholder when none specified
-            converted["domain"] = "Technology"
-            self.logger.debug("No domains specified, using safe domain placeholder")
+            self.logger.debug(
+                "No domains specified; leaving domain unset so the engine selects them.")
         
         # Handle cognitive frameworks
         if web_params.get("cognitive_frameworks"):

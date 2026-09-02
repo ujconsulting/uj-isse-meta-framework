@@ -507,5 +507,104 @@ class TestCostEstimatesAreDerived(unittest.TestCase):
         self.assertEqual((rate["input"], rate["output"]), (42.0, 43.0))
 
 
+class TestEstimatorPricesTheRightModels(unittest.TestCase):
+    """Findings from the web-interface smoke test.
+
+    `/api/estimate` for a request selecting three OpenRouter models answered with a
+    breakdown for 'Claude Sonnet 4', 'GPT-4 Turbo' and 'Gemini 2.5 Pro' — the first three
+    entries of globant_enterprise_config.json, a provider this installation cannot reach.
+    Every `*config*.json` in the directory is merged into one pool and the selection was
+    ignored entirely.
+    """
+
+    class _Params(dict):
+        def get(self, key, default=None):
+            return dict.get(self, key, default)
+
+    def setUp(self):
+        import logging as _logging
+
+        from cost_estimation import CostEstimator
+
+        _logging.disable(_logging.CRITICAL)
+        self.addCleanup(_logging.disable, _logging.NOTSET)
+        self.est = CostEstimator()
+
+    def test_pool_is_not_empty(self):
+        """Regression guard for a filter that silently emptied it.
+
+        A `requires`-based credential filter looked principled but emptied the pool in any
+        context that had not loaded .env, and the estimator then fell back to five
+        hardcoded 2024 models without saying so.
+        """
+        self.assertGreaterEqual(len(self.est.models_info), 14)
+
+    def test_selected_models_are_the_ones_priced(self):
+        chosen = self.est._get_available_models_for_params(
+            self._Params(selected_models=["or_claude_sonnet_5", "or_glm_53_flash"], models=2))
+        self.assertEqual(
+            sorted(m["parameters"]["model"] for m in chosen),
+            ["anthropic/claude-sonnet-5", "z-ai/glm-5.3-flash"])
+
+    def test_unselected_estimate_prefers_models_with_known_prices(self):
+        chosen = self.est._get_available_models_for_params(self._Params(models=3))
+        self.assertTrue(chosen)
+        for m in chosen:
+            self.assertIsInstance(
+                m.get("pricing"), dict,
+                f"{m.get('name')} has no recorded price and must not drive an estimate")
+
+    def test_disabled_models_are_excluded(self):
+        from cost_estimation import CostEstimator
+
+        self.assertFalse(CostEstimator._model_is_usable({"id": "x", "disabled": True}))
+        self.assertTrue(CostEstimator._model_is_usable({"id": "x"}))
+
+
+class TestWebRunOutcomePlumbing(unittest.TestCase):
+    """The web layer must read the child's output as UTF-8.
+
+    main.py reconfigures its own streams, but app.py decoded them with the locale
+    encoding. TextIOWrapper decodes in chunks, so one undefined byte discarded a whole
+    8 KB block — and main.py prints "🏁 Parallel execution completed" 149 bytes after the
+    `parallel_execution_complete` event, in the same block. The tally was lost and
+    succeeded_combinations stayed 0 after three successful calls, visible only as a DEBUG
+    line.
+    """
+
+    def test_subprocess_is_read_as_utf8(self):
+        import io
+        import re
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source = io.open(os.path.join(root, "app.py"), encoding="utf-8").read()
+        m = re.search(r"subprocess\.Popen\((.*?)\n            \)", source, re.S)
+        self.assertIsNotNone(m, "could not locate the Popen call")
+        call = m.group(1)
+        self.assertIn('encoding="utf-8"', call,
+                      "without an explicit encoding the parent decodes as cp1252 on Windows")
+        self.assertIn('errors="replace"', call,
+                      "a bad byte must cost one character, not a block of progress events")
+
+    def test_no_invented_domain_placeholder(self):
+        """app.py inserted the domain "Technology", which does not exist.
+
+        main.py then returned early without an error and the caller concatenated None
+        onto a string, so every web run reaching that fallback died with
+        `TypeError: can only concatenate str (not "NoneType") to str`.
+        """
+        import io
+        import json
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source = io.open(os.path.join(root, "app.py"), encoding="utf-8").read()
+        self.assertNotIn('converted["domain"] = "Technology"', source)
+
+        with io.open(os.path.join(root, "openrouter_config.json"), encoding="utf-8") as f:
+            names = {d["name"] for d in json.load(f)["domains"]}
+        self.assertNotIn("Technology", names,
+                         "if a domain by this name ever exists, revisit the fallback")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
