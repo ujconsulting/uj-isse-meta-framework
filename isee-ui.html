@@ -647,6 +647,27 @@
             margin-top: 15px;
         }
 
+        /* Selectable tiles. The .selected state must be visually obvious without
+           relying on colour alone — deselected tiles lose their fill and fade, so the
+           difference survives greyscale and colour-vision differences. */
+        .selectable { cursor: pointer; user-select: none; }
+        .selectable:not(.selected) {
+            opacity: 0.4;
+            filter: grayscale(1);
+            border-style: dashed !important;
+        }
+        .selectable:hover { transform: translateY(-1px); }
+        .selectable:focus-visible {
+            outline: 2px solid #c2410c;
+            outline-offset: 2px;
+        }
+        .selection-count {
+            margin-top: 10px;
+            font-size: 0.82rem;
+            color: #64748b;
+            text-align: center;
+        }
+
         .model-indicator {
             background: rgba(75, 85, 99, 0.1);
             border-radius: 8px;
@@ -2205,6 +2226,7 @@
                 <div class="model-grid" id="modelGrid">
                     <!-- Dynamic model indicators populated from API -->
                 </div>
+                <div class="selection-count" id="modelSelectionCount"></div>
             </div>
 
             <!-- SECOND: Cognitive Frameworks Section -->
@@ -2213,6 +2235,7 @@
                 <div class="frameworks-grid" id="frameworksGrid">
                     <!-- Dynamic framework indicators populated from API -->
                 </div>
+                <div class="selection-count" id="frameworkSelectionCount"></div>
             </div>
 
             <!-- THIRD: Knowledge Domains Section -->
@@ -2409,19 +2432,109 @@
                 
                 displayModels.forEach(model => {
                     const indicator = document.createElement('div');
-                    indicator.className = 'model-indicator';
+                    // These tiles serve two jobs at once: they are the run's progress
+                    // indicators AND its model picker. They looked selectable long before
+                    // they were — same chip shape as every other clickable control on the
+                    // page — so a user could reasonably conclude the selection was broken
+                    // rather than absent.
+                    indicator.className = 'model-indicator selectable selected';
                     indicator.setAttribute('data-model', model.id);
+                    indicator.setAttribute('role', 'checkbox');
+                    indicator.setAttribute('aria-checked', 'true');
+                    indicator.setAttribute('tabindex', '0');
                     indicator.textContent = model.name.replace(/\s+/g, ' ');
+                    indicator.addEventListener('click', () => toggleSelection(indicator, 'model'));
+                    indicator.addEventListener('keydown', e => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                            e.preventDefault();
+                            toggleSelection(indicator, 'model');
+                        }
+                    });
                     modelGrid.appendChild(indicator);
                     
                     // Store model reference for progress tracking
                     currentExecution.modelsMap.set(model.id, model.name);
                 });
+                updateSelectionCounts();
                 
             } catch (error) {
                 console.error('Failed to load models:', error);
                 showError('Failed to load language models. Please refresh the page.');
             }
+        }
+
+
+        /* ---------------------------------------------------------------------------
+           Model and framework selection.
+           -------------------------------------------------------------------------
+           The tiles were progress indicators only: no handler, no state, and the run
+           payload never carried selected_models even though the API has accepted it all
+           along. They still light up during a run — the two roles share one element, so
+           the run styling must not be confused with the selected/deselected styling.
+           --------------------------------------------------------------------------- */
+        function toggleSelection(el, kind) {
+            const willDeselect = el.classList.contains('selected');
+            if (willDeselect) {
+                const container = kind === 'model' ? '#modelGrid' : '#frameworksGrid';
+                const remaining = document.querySelectorAll(container + ' .selected').length;
+                // Zero of either makes the run meaningless rather than cheap, and the
+                // backend would answer with something unhelpful. Refuse the last one.
+                if (remaining <= 1) {
+                    flashSelectionWarning(kind);
+                    return;
+                }
+            }
+            el.classList.toggle('selected', !willDeselect);
+            el.setAttribute('aria-checked', String(!willDeselect));
+            updateSelectionCounts();
+        }
+
+        function flashSelectionWarning(kind) {
+            const el = document.getElementById(
+                kind === 'model' ? 'modelSelectionCount' : 'frameworkSelectionCount');
+            if (!el) return;
+            const previous = el.textContent;
+            const de = window.I18N && I18N.lang === 'de';
+            el.textContent = kind === 'model'
+                ? (de ? 'Mindestens ein Modell wird benötigt' : 'At least one model is required')
+                : (de ? 'Mindestens ein Rahmen wird benötigt' : 'At least one framework is required');
+            el.style.color = '#c2410c';
+            setTimeout(() => {
+                el.style.color = '';
+                updateSelectionCounts();
+            }, 2200);
+        }
+
+        function getSelectedModels() {
+            return Array.from(document.querySelectorAll('#modelGrid .selected'))
+                        .map(el => el.getAttribute('data-model'));
+        }
+
+        function getSelectedFrameworks() {
+            return Array.from(document.querySelectorAll('#frameworksGrid .selected'))
+                        .map(el => el.getAttribute('data-framework'));
+        }
+
+        function updateSelectionCounts() {
+            const pairs = [
+                ['modelGrid', 'modelSelectionCount', 'models'],
+                ['frameworksGrid', 'frameworkSelectionCount', 'frameworks']
+            ];
+            pairs.forEach(([gridId, labelId, noun]) => {
+                const grid = document.getElementById(gridId);
+                const label = document.getElementById(labelId);
+                if (!grid || !label) return;
+                const total = grid.querySelectorAll('.selectable').length;
+                const chosen = grid.querySelectorAll('.selected').length;
+                // Built per language rather than looked up: the string carries numbers,
+                // so it can never match a static translation key. Sending it through the
+                // dictionary would leave it English in a German interface.
+                const de = window.I18N && I18N.lang === 'de';
+                const word = de ? (noun === 'models' ? 'Modelle' : 'Rahmen') : noun;
+                label.textContent = de
+                    ? `${chosen} von ${total} ${word} ausgewählt — zum Ändern klicken`
+                    : `${chosen} of ${total} ${word} selected — click to change`;
+            });
         }
 
         async function loadFrameworks() {
@@ -2439,12 +2552,26 @@
                 
                 frameworks.forEach(framework => {
                     const indicator = document.createElement('div');
-                    indicator.className = 'framework-indicator';
+                    indicator.className = 'framework-indicator selectable selected';
                     indicator.id = `framework-${framework.id}`;
+                    // The run payload identifies frameworks by display name, so keep it
+                    // on the element rather than deriving it again at submit time.
+                    indicator.setAttribute('data-framework', framework.name.split(' - ')[0]);
+                    indicator.setAttribute('role', 'checkbox');
+                    indicator.setAttribute('aria-checked', 'true');
+                    indicator.setAttribute('tabindex', '0');
                     indicator.innerHTML = `${framework.name.split(' - ')[0]}`;
                     indicator.title = framework.description;
+                    indicator.addEventListener('click', () => toggleSelection(indicator, 'framework'));
+                    indicator.addEventListener('keydown', e => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                            e.preventDefault();
+                            toggleSelection(indicator, 'framework');
+                        }
+                    });
                     frameworksGrid.appendChild(indicator);
                 });
+                updateSelectionCounts();
                 
             } catch (error) {
                 console.error('Failed to load frameworks:', error);
@@ -2452,6 +2579,54 @@
         }
 
         function initializeShowcaseQueries() {
+
+            // German showcase queries. Written for a German context rather than
+            // translated — "Wärmepumpe im WEG-Altbau" is a question someone here actually
+            // has, whereas a literal rendering of the US examples (millennial student
+            // debt, physician burnout in a private system) would read as imported.
+            const SHOWCASE_QUERIES_DE = [
+                {
+                    text: "Wie können Kommunen widerstandsfähige regionale Lebensmittelsysteme aufbauen, die Höfe in der Umgebung tragen, die Versorgung verbessern und Umweltfolgen senken — und dabei wirtschaftlich bestehen?",
+                    domains: "Kommunalentwicklung • Ernährungssicherheit • Umweltwirkung • Wirtschaftlichkeit"
+                },
+                {
+                    text: "Was hemmt den Einbau von Wärmepumpen in älteren Mehrfamilienhäusern — technisch, wirtschaftlich, rechtlich und im Zusammenspiel der Eigentümergemeinschaft?",
+                    domains: "Gebäudetechnik • WEG-Recht • Förderpolitik • Sanierung"
+                },
+                {
+                    text: "Wie können berufstätige Eltern die schulische Entwicklung ihrer Kinder wirksam begleiten, wenn Zeit knapp ist und Lerntypen wie Familienlagen sich stark unterscheiden?",
+                    domains: "Bildung • Erziehung • Vereinbarkeit • Kindesentwicklung"
+                },
+                {
+                    text: "Mit welchen belegbaren Ansätzen lässt sich die Überlastung in Kliniken verringern, ohne die Versorgungsqualität zu senken oder die Kosten weiter zu treiben?",
+                    domains: "Gesundheitswesen • Arbeitsorganisation • Qualitätsmanagement • Kosten"
+                },
+                {
+                    text: "Wie sollte der Mittelstand KI einführen, um Produktivität und Entscheidungsqualität zu heben, ohne Belegschaft zu verdrängen oder die eigene Kultur zu beschädigen?",
+                    domains: "KI-Strategie • Personal • Organisationswandel • Technologieeinführung"
+                },
+                {
+                    text: "Welche Wege haben Fachkräfte in der Lebensmitte, um in eine andere Branche zu wechseln, ohne bestehende Kompetenzen zu entwerten oder die finanzielle Absicherung zu verlieren?",
+                    domains: "Berufsweg • Kompetenztransfer • Finanzplanung • Weiterbildung"
+                },
+                {
+                    text: "Welche Erlösmodelle tragen unabhängige Content-Schaffende dauerhaft, ohne ihre gestalterische Freiheit oder die Bindung zum Publikum zu opfern?",
+                    domains: "Kreativwirtschaft • Geschäftsmodelle • Publikumsbindung • Creator Economy"
+                },
+                {
+                    text: "Wie lässt sich der öffentliche Nahverkehr so umbauen, dass Emissionen sinken und Barrierefreiheit steigt — bei knappen kommunalen Haushalten?",
+                    domains: "Stadtplanung • Umweltpolitik • Barrierefreiheit • Verwaltung"
+                },
+                {
+                    text: "Wie kann der Fachkräftemangel im Handwerk angegangen werden, wenn Ausbildungszahlen sinken, Betriebe altern und die Nachfrage durch die Sanierungswelle steigt?",
+                    domains: "Arbeitsmarkt • Berufsausbildung • Handwerk • Demografie"
+                },
+                {
+                    text: "Wie können Forschende die praktische Wirkung ihrer Arbeit erhöhen, zwischen Publikationsdruck, Drittmittellage und der Aufgabe, komplexe Befunde verständlich zu vermitteln?",
+                    domains: "Forschungstransfer • Wissenschaftsstrategie • Wissenschaftskommunikation"
+                }
+            ];
+
             const showcaseQueries = [
                 {
                     text: "How can local communities develop resilient food systems that support local farmers, improve nutrition access, and reduce environmental impact while remaining economically viable?",
@@ -2498,7 +2673,11 @@
             const showcaseGrid = document.getElementById('showcaseGrid');
             showcaseGrid.innerHTML = '';
 
-            showcaseQueries.forEach(query => {
+            // Pick the list for the current interface language.
+            const queries = (window.I18N && I18N.lang === 'de')
+                ? SHOWCASE_QUERIES_DE : showcaseQueries;
+
+            queries.forEach(query => {
                 const card = document.createElement('div');
                 card.className = 'showcase-query-card';
                 card.innerHTML = `
@@ -2704,9 +2883,14 @@
                 // Check analysis mode and adjust parameters
                 const isTestMode = document.querySelector('input[name="analysisMode"]:checked').value === 'test';
                 const maxCombinations = isTestMode ? 11 : 66;
-                const frameworks = isTestMode ? 
-                    ['Analytical', 'Creative', 'Critical', 'Integrative', 'Pragmatic', 'First Principles', 'Systems', 'Contrarian', 'Historical', 'Futurist', 'Disruption'] :  // All 11 frameworks for test mode
-                    ['Analytical', 'Creative', 'Critical', 'Integrative', 'Pragmatic', 'First Principles', 'Systems', 'Contrarian', 'Historical', 'Futurist', 'Disruption'];
+                // Both branches of the old ternary listed the same eleven frameworks,
+                // so the choice never mattered. Take the user's selection instead, and
+                // fall back to all eleven only if the grid has not rendered.
+                const ALL_FRAMEWORKS = ['Analytical', 'Creative', 'Critical', 'Integrative',
+                    'Pragmatic', 'First Principles', 'Systems', 'Contrarian', 'Historical',
+                    'Futurist', 'Disruption'];
+                const frameworks = getSelectedFrameworks().length
+                    ? getSelectedFrameworks() : ALL_FRAMEWORKS;
                 
                 // Get selected provider
                 const selectedProvider = document.querySelector('input[name="providerMode"]:checked').value;
@@ -2719,7 +2903,11 @@
                     },
                     body: JSON.stringify({
                         query: query,
-                        use_strategic_models: true,  // Use strategic models instead of collection
+                        // Send what the user actually picked. use_strategic_models stays
+                        // as the fallback for the case where the grid has not rendered
+                        // yet, but an explicit selection has to win over it.
+                        use_strategic_models: getSelectedModels().length === 0,
+                        selected_models: getSelectedModels(),
                         cognitive_frameworks: frameworks,
                         selected_domains: suggestedDomains.map(d => d.name),
                         variations: 2,  // Enable dynamic context-sensitive query variations (max 2)
@@ -4784,7 +4972,11 @@
         // Cost hints. Measured on 2026-09-02 from billed tokens, not the older
         // $0.07/$0.50 figures which predated the current portfolio.
         "~$0.05, 1 minute": "~$0,05, 1 Minute",
-        "~$0.31, 4 minutes": "~$0,31, 4 Minuten"
+        "~$0.31, 4 minutes": "~$0,31, 4 Minuten",
+
+        // Selection UI
+        "At least one model is required": "Mindestens ein Modell wird benötigt",
+        "At least one framework is required": "Mindestens ein Rahmen wird benötigt"
     };
 
     const I18N = {
@@ -4851,6 +5043,15 @@
                 btn.style.fontWeight = btn.dataset.langOption === lang ? "600" : "400";
             });
 
+            // Counts are generated, not translated (they contain numbers), so they have
+            // to be rebuilt whenever the language changes.
+            if (typeof updateSelectionCounts === "function") updateSelectionCounts();
+            // The example queries are separate lists per language, not translations of
+            // one another, so they are re-rendered rather than rewritten in place.
+            if (typeof initializeShowcaseQueries === "function") {
+                try { initializeShowcaseQueries(); } catch (e) { /* grid not present yet */ }
+            }
+
             try { localStorage.setItem("isee-lang", lang); } catch (e) { /* private mode */ }
         },
 
@@ -4879,6 +5080,13 @@
             this.apply(lang);
         }
     };
+
+    // Expose deliberately. A top-level `const` lives in the global LEXICAL scope, not on
+    // `window`, so code elsewhere testing `window.I18N` sees undefined even though the
+    // name resolves fine — which silently left the example queries and the selection
+    // counts in English while the rest of the interface was German.
+    window.I18N = I18N;
+    window.I18N_DE = I18N_DE;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", () => I18N.init());
