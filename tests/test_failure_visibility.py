@@ -606,5 +606,131 @@ class TestWebRunOutcomePlumbing(unittest.TestCase):
                          "if a domain by this name ever exists, revisit the fallback")
 
 
+class TestExitCodeReflectsTheAnalysis(unittest.TestCase):
+    """`$?` must say whether the analysis worked, not merely that the process ended.
+
+    A run in which every model call failed wrote its files, printed a summary and exited
+    0, so any caller checking the exit code — CI, a shell pipeline, app.py — read total
+    failure as success. Verified end to end with a deliberately invalid API key: exit 2,
+    zero raw responses, three failure records.
+    """
+
+    def _exit_code_for(self, results):
+        """Replicate main()'s tail without running a pipeline."""
+        from main import ISEEApplication
+
+        succeeded, failed = ISEEApplication._partition_successful(results)
+        if failed and not succeeded:
+            return 2
+        if failed:
+            return 1
+        return 0
+
+    def test_all_failed_is_two(self):
+        self.assertEqual(self._exit_code_for({
+            "a": {"status": "failed", "response": None, "error": {}},
+            "b": {"status": "failed", "response": None, "error": {}},
+        }), 2)
+
+    def test_partial_failure_is_one(self):
+        self.assertEqual(self._exit_code_for({
+            "a": {"status": "succeeded", "response": "text"},
+            "b": {"status": "failed", "response": None, "error": {}},
+        }), 1)
+
+    def test_full_success_is_zero(self):
+        self.assertEqual(self._exit_code_for({
+            "a": {"status": "succeeded", "response": "text"},
+        }), 0)
+
+    def test_web_layer_accepts_the_partial_and_total_failure_codes(self):
+        """app.py must not treat exit 1 or 2 as a crash and discard partial results."""
+        import io
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        source = io.open(os.path.join(root, "app.py"), encoding="utf-8").read()
+        self.assertIn("if process.returncode in (0, 1, 2):", source)
+
+
+class TestWebAndCliAgreeOnOutputFormat(unittest.TestCase):
+    """app.py named the result file from one default, main.py wrote it with another.
+
+    app.py assumed "json" and skipped passing --output-format for that value, so main.py
+    used its own default of markdown — and wrote Markdown into a file already named
+    isee_result.json. /api/markdown then 404'd because the name did not end in .md, and
+    anything parsing it as JSON failed on the first character.
+    """
+
+    def setUp(self):
+        import io
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.app_source = io.open(os.path.join(root, "app.py"), encoding="utf-8").read()
+        self.main_source = io.open(os.path.join(root, "main.py"), encoding="utf-8").read()
+
+    def test_cli_default_is_markdown(self):
+        self.assertIn('choices=["markdown", "json"], default="markdown"', self.main_source)
+
+    def test_web_default_matches_and_is_stated(self):
+        self.assertIn('converted_params.get("output_format") or "markdown"', self.app_source)
+        self.assertNotIn('converted_params.get("output_format", "json")', self.app_source)
+
+    def test_format_flag_is_always_passed(self):
+        """Skipping the flag is what let the two defaults drift apart."""
+        self.assertNotIn('!= "json":\n            cmd_parts.extend(["--output-format"',
+                         self.app_source)
+
+
+class TestWebServerDefaults(unittest.TestCase):
+    """Two settings that silently destroyed work."""
+
+    def setUp(self):
+        import io
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.source = io.open(os.path.join(root, "app.py"), encoding="utf-8").read()
+
+    def test_debug_reloader_is_opt_in(self):
+        """Run status lives in memory; a reload orphans the child and loses it forever.
+
+        The old rule was `debug = PORT is None`, i.e. on for the documented local start
+        path and off only in production — so the mode that destroys runs was the default
+        for the way people actually use it.
+        """
+        self.assertNotIn("debug_mode = os.environ.get('PORT') is None", self.source)
+        self.assertIn("ISEE_FLASK_DEBUG", self.source)
+
+    def test_log_file_handler_is_utf8(self):
+        """The handler logs the child's output verbatim, and that output has emoji.
+
+        Without an encoding, every such record became a "--- Logging error ---" block:
+        24 of them in one three-minute session. Losing log lines is how the other
+        defects stayed invisible.
+        """
+        self.assertIn("logging.FileHandler('isee-ui.log', encoding='utf-8')", self.source)
+
+
+class TestFrontendsHandleEveryTerminalStatus(unittest.TestCase):
+    """An unhandled status ends the poll loop with a frozen spinner and no message."""
+
+    def setUp(self):
+        import io
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.ui = io.open(os.path.join(root, "isee-ui.html"), encoding="utf-8").read()
+        self.demo = io.open(os.path.join(root, "templates", "demo.html"),
+                            encoding="utf-8").read()
+
+    def test_main_ui_reports_unknown_statuses(self):
+        self.assertIn("not_found", self.ui,
+                      "the status that actually occurs after a server restart")
+        poll = self.ui[self.ui.index("if (status.status === 'completed'"):][:1400]
+        self.assertIn("} else {", poll,
+                      "without a final else an unknown status silently ends the poll loop")
+
+    def test_legacy_template_treats_not_found_as_terminal(self):
+        self.assertIn("'not_found'", self.demo)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

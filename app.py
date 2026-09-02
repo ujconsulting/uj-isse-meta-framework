@@ -5,11 +5,24 @@ Minimalist web UI for investor demonstrations showcasing the ISEE configuration 
 """
 
 import os
+import sys
 import json
 import subprocess
 import threading
 import time
 import logging
+
+# Force UTF-8 on this process's own streams before anything logs or prints.
+#
+# dev-server.sh redirects stdout to a file, so Windows picks cp1252 and any emoji
+# in a log line raises UnicodeEncodeError. It happened to work only because
+# `from main import ...` further down runs main.py's reconfigure as a side effect
+# of import — an accident that would end the moment that import moved or went away.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        pass
 import asyncio
 from datetime import datetime
 from pathlib import Path
@@ -32,12 +45,19 @@ from openrouter_rankings_service import OpenRouterRankingsService
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.urandom(24)
 
-# Configure logging for debugging
+# Configure logging for debugging.
+#
+# encoding="utf-8" on the file handler is not cosmetic. This module logs the child
+# process's output verbatim, and that output contains emoji; without it the handler
+# encodes with the Windows locale codec, every such line raises UnicodeEncodeError inside
+# logging, and the record is replaced by a "--- Logging error ---" block. 24 of them
+# appeared in a single three-minute session. Losing log lines is precisely how the
+# preceding defects stayed invisible for so long.
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('isee-ui.log'),
+        logging.FileHandler('isee-ui.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -515,9 +535,9 @@ class ISEEWebDemo:
         
         # Sampling method removed - now uses optimal default (exhaustive + balanced-models)
         
-        # Add output format
-        if parameters.get("output_format") and parameters["output_format"] != "json":
-            cmd_parts.extend(["--output-format", parameters["output_format"]])
+        # Add output format (see the note at the execution site below)
+        cmd_parts.extend(["--output-format",
+                          parameters.get("output_format") or "markdown"])
         
         # Note: No dry-run flag added - show the actual command that will be executed
         
@@ -641,9 +661,18 @@ class ISEEWebDemo:
             
             # Sampling method removed - now uses optimal default (exhaustive + balanced-models)
             
-            # Add output format
-            if converted_params.get("output_format") and converted_params["output_format"] != "json":
-                cmd.extend(["--output-format", converted_params["output_format"]])
+            # Always pass the format explicitly and default to markdown, matching
+            # main.py (--output-format default="markdown").
+            #
+            # These two sides disagreed: app.py assumed "json" and SKIPPED the flag
+            # for that value, so main.py fell back to its own default and wrote
+            # Markdown — into a file app.py had already named isee_result.json. The
+            # result was Markdown behind a .json extension: /api/markdown returned
+            # 404 because the name did not end in .md, and anything parsing it as
+            # JSON failed. Assuming a default instead of stating it is what let the
+            # two drift apart.
+            cmd.extend(["--output-format",
+                        converted_params.get("output_format") or "markdown"])
             
             # Always generate comprehensive result package for Web UI
             cmd.append("--generate-reports")
@@ -672,7 +701,7 @@ class ISEEWebDemo:
             run_dir.mkdir(parents=True, exist_ok=True)
             
             # Determine file extension based on output format (following main.py logic)
-            output_format = converted_params.get("output_format", "json")
+            output_format = converted_params.get("output_format") or "markdown"
             if output_format == "markdown":
                 extension = "md"
             else:
@@ -769,7 +798,15 @@ class ISEEWebDemo:
             # Monitor progress and wait for completion
             stdout, stderr = self._monitor_subprocess_progress(process, execution_id)
             
-            if process.returncode == 0:
+            # main.py's exit code now carries the analysis outcome, not just "the process
+            # reached the end":
+            #   0 — every combination succeeded
+            #   1 — some failed, an analysis was still produced
+            #   2 — all failed, nothing was produced
+            # Anything else is a crash and belongs in the error branch below. Treating 1
+            # and 2 as crashes would throw away the partial results and the distinction
+            # this whole path exists to make.
+            if process.returncode in (0, 1, 2):
                 self.logger.info(f"Execution {execution_id} completed successfully")
                 
                 # Auto-ingest performance data into database
@@ -2976,6 +3013,20 @@ if __name__ == '__main__':
     print(f"📱 Open your browser to: http://localhost:{port}/isee-ui")
     print("💡 For full screen mode, press F11")
     
-    # Use debug=False in production (when PORT env var is set)
-    debug_mode = os.environ.get('PORT') is None
+    # ⛔ The auto-reloader must stay off, and that is not a preference.
+    #
+    # `execution_status` lives in this process's memory, and analyses run for minutes as
+    # child processes. When the reloader restarts the server — which it does on any file
+    # touched while a run is in flight — the child is orphaned with an empty run
+    # directory, and every later poll of /api/status/<id> answers "not_found" forever
+    # because the dictionary that held it is gone. Observed exactly that way on
+    # 2026-09-02: an edit during a run cost the run, silently.
+    #
+    # This used to be `debug = PORT is None`, i.e. on for the documented
+    # `./scripts/dev-server.sh start` path and off only on Railway — so the mode that
+    # destroys work was the default for local use. Opt in deliberately instead.
+    debug_mode = os.environ.get('ISEE_FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
+    if debug_mode:
+        print("⚠️  Flask debug mode is ON. The auto-reloader will kill any analysis that "
+              "is running when a file changes, and in-flight run status is lost with it.")
     app.run(debug=debug_mode, host='0.0.0.0', port=port)

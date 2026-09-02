@@ -2738,6 +2738,19 @@
                 } else if (status.status === 'running' || status.status === 'starting') {
                     // Continue polling
                     setTimeout(() => monitorProgress(), 2000);
+                } else {
+                    // Any other status ends the poll loop, so it must be reported rather
+                    // than dropped. 'not_found' is the one that actually happens: run
+                    // status lives in the server's memory, so a restart loses it and this
+                    // branch used to leave the spinner turning with no message, forever.
+                    handleError({
+                        ...status,
+                        error: status.status === 'not_found'
+                            ? 'The server no longer knows about this run — it was most '
+                              + 'likely restarted while the analysis was in flight. Any '
+                              + 'results are in data/output/; the run itself is gone.'
+                            : `Unexpected run status "${status.status}".`
+                    });
                 }
 
             } catch (error) {

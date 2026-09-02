@@ -3425,6 +3425,23 @@ def main():
     if hasattr(app, 'run_output_dir') and app.run_output_dir:
         update_latest_symlink(app.run_output_dir)
 
+    # The exit code must reflect the analysis, not merely that the process reached the
+    # end. A run in which every model call failed produced files, printed a summary and
+    # exited 0 — so any caller checking `$?`, including CI and shell pipelines, read total
+    # failure as success. This is the last place that still said "fine" regardless.
+    results = getattr(app, "results", None) or {}
+    if results:
+        succeeded, failed = ISEEApplication._partition_successful(results)
+        if failed and not succeeded:
+            print(f"\n❌ All {len(failed)} combination(s) failed — no analysis was "
+                  f"produced. See failed_responses/ in the run directory.")
+            return 2
+        if failed:
+            print(f"\n⚠️  {len(failed)} of {len(results)} combination(s) failed; the "
+                  f"analysis rests on {len(succeeded)} response(s).")
+            return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

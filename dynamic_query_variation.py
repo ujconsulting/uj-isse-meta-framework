@@ -295,16 +295,37 @@ Respond with just the JSON, no explanation."""
             "messages": [
                 {"role": "user", "content": prompt}
             ],
-            "max_tokens": max_tokens,
+            # Reasoning models spend part of this budget thinking before they emit a
+            # single visible character. At the previous ceiling of 200 the thinking used
+            # it up and `content` came back empty, which is why every run logged
+            # "'NoneType' object has no attribute 'strip'" twice.
+            "max_tokens": max(max_tokens, 1500),
             "temperature": temperature,
-            "timeout": 30  # Prevent long waits
+            # ("timeout" used to be sent inside the payload. It is not an OpenRouter
+            #  parameter — the request timeout is the one passed to requests.post below.)
         }
-        
+
         response = requests.post(self.base_url, headers=headers, json=data, timeout=60)
         response.raise_for_status()
-        
+
         result = response.json()
-        return result['choices'][0]['message']['content']
+        try:
+            content = result["choices"][0]["message"]["content"]
+        except (KeyError, IndexError) as exc:
+            raise ValueError(
+                f"Unexpected response shape from {self.analysis_model}: {exc}"
+            ) from exc
+
+        # A reasoning model can return content=None with all of its budget spent on
+        # reasoning tokens. Returning that made the caller fail on `.strip()`, three
+        # frames away from the cause and looking like a bug in the caller.
+        if not content or not content.strip():
+            finish = (result.get("choices") or [{}])[0].get("finish_reason")
+            raise ValueError(
+                f"{self.analysis_model} returned no text "
+                f"(finish_reason={finish!r}); the fallback analysis will be used."
+            )
+        return content
     
     def _fallback_analysis(self, query_text: str) -> QueryAnalysis:
         """Provide fallback analysis when LLM is unavailable."""

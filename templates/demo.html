@@ -502,7 +502,11 @@
         // real results with some calls failed; 'failed' means every call failed. Both are
         // terminal, so polling must stop for them too, or the UI spins forever.
         function isTerminal(s) {
-            return ['completed', 'completed_with_failures', 'error', 'failed'].includes(s);
+            // 'not_found' belongs here too: run status lives in the server's memory, so a
+            // restart loses it and every later poll answers not_found. Without it this
+            // polled once a second forever.
+            return ['completed', 'completed_with_failures', 'error', 'failed',
+                    'not_found'].includes(s);
         }
 
         class ISEEDemo {
@@ -1801,6 +1805,12 @@
                 } else if (status.status === 'error' || status.status === 'failed') {
                     statusDiv.className = 'execution-status status-error';
                     detailsDiv.innerHTML = `<div style="color: #e53e3e; margin-top: 10px;">Error: ${status.error}</div>`;
+                } else if (status.status === 'not_found') {
+                    statusDiv.className = 'execution-status status-error';
+                    detailsDiv.innerHTML = `<div style="color: #e53e3e; margin-top: 10px;">`
+                        + `The server no longer knows about this run — it was most likely `
+                        + `restarted while the analysis was in flight. Any results are in `
+                        + `data/output/.</div>`;
                 }
                 
                 if (isTerminal(status.status)) {
