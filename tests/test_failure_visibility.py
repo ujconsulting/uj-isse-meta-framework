@@ -392,5 +392,120 @@ class TestTextFilesAreUtf8(unittest.TestCase):
             self.assertEqual(io.open(target, encoding="utf-8").read(), payload)
 
 
+class TestCostEstimatesAreDerived(unittest.TestCase):
+    """Cost figures must come from recorded prices, not from constants or guesses.
+
+    Three defects are guarded. The CLI guardrail priced every combination at a flat
+    $0.08 regardless of the configured portfolio — for the current one that overstates a
+    66-call run as $5.28 against roughly $0.31, and the guardrail *blocks* runs on that
+    number. The response-token estimate used 0.85 × max_tokens, which was reasonable at
+    max_tokens 4096 and predicts 13,600 tokens per call at 16,000. And an OpenRouter
+    model with no known price was charged at Anthropic rates, which for
+    upstage/solar-pro4 is wrong by about sixty times.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import io
+        import json
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cls.root = root
+        with io.open(os.path.join(root, "openrouter_config.json"), encoding="utf-8") as f:
+            cls.models = json.load(f)["models"]["api_models"]
+
+    def test_every_model_carries_a_price(self):
+        for m in self.models:
+            pricing = m.get("pricing")
+            self.assertIsInstance(pricing, dict, f"{m['id']} has no pricing block")
+            for field in ("prompt_per_mtok", "completion_per_mtok", "fetched"):
+                self.assertIn(field, pricing, f"{m['id']} pricing lacks {field}")
+            # Per-MILLION, not per-token. A missing 1e6 conversion is a six-order-of-
+            # magnitude error that still looks like a working feature, so assert the
+            # magnitude rather than trusting the field name.
+            self.assertGreater(pricing["completion_per_mtok"], 0.001, m["id"])
+            self.assertLess(pricing["completion_per_mtok"], 1000, m["id"])
+
+    def test_guardrail_uses_configured_prices_not_a_constant(self):
+        from main import ISEEGuardrails
+
+        cost = ISEEGuardrails.estimate_cost(
+            66, config_path=os.path.join(self.root, "openrouter_config.json"))
+        self.assertNotAlmostEqual(cost, 66 * 0.08, places=2,
+                                  msg="still returning the flat $0.08 per combination")
+        # Derived from the recorded prices: well under a dollar for this portfolio.
+        self.assertLess(cost, 1.0)
+        self.assertGreater(cost, 0.0)
+
+    def test_guardrail_scales_with_the_portfolio(self):
+        """A cheaper portfolio must produce a cheaper estimate — a constant would not."""
+        import io
+        import json
+        import tempfile
+
+        with io.open(os.path.join(self.root, "openrouter_config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        for m in cfg["models"]["api_models"]:
+            m["pricing"]["prompt_per_mtok"] /= 10
+            m["pricing"]["completion_per_mtok"] /= 10
+
+        from main import ISEEGuardrails
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cheap = os.path.join(tmp, "cheap.json")
+            with io.open(cheap, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+            expensive = ISEEGuardrails.estimate_cost(
+                66, config_path=os.path.join(self.root, "openrouter_config.json"))
+            self.assertAlmostEqual(
+                ISEEGuardrails.estimate_cost(66, config_path=cheap), expensive / 10,
+                places=4)
+
+    def test_response_tokens_capped_at_the_measured_typical(self):
+        from cost_estimation import TYPICAL_RESPONSE_TOKENS, CostEstimator
+
+        est = CostEstimator.__new__(CostEstimator)
+        # A high ceiling must not be mistaken for a forecast...
+        self.assertEqual(
+            CostEstimator._estimate_response_tokens(est, {"parameters": {"max_tokens": 16000}}),
+            TYPICAL_RESPONSE_TOKENS)
+        # ...but a genuinely low ceiling still binds.
+        self.assertEqual(
+            CostEstimator._estimate_response_tokens(est, {"parameters": {"max_tokens": 1000}}),
+            850)
+
+    def test_unknown_openrouter_model_is_not_priced_as_anthropic(self):
+        import logging as _logging
+
+        from cost_estimation import CostEstimator
+
+        est = CostEstimator.__new__(CostEstimator)
+        _logging.disable(_logging.CRITICAL)
+        try:
+            rate = CostEstimator._get_model_cost_rate(
+                est, {"provider": "openrouter",
+                      "parameters": {"model": "someone/model-invented-for-this-test"}})
+        finally:
+            _logging.disable(_logging.NOTSET)
+
+        self.assertTrue(rate.get("price_unavailable"),
+                        "an unknown model must be flagged, not silently priced")
+        self.assertEqual(rate["input"], 0.0)
+
+    def test_configured_price_beats_the_static_table(self):
+        """The embedded price wins even where MODEL_COSTS holds a (stale) entry."""
+        from cost_estimation import CostEstimator
+
+        est = CostEstimator.__new__(CostEstimator)
+        entry = {
+            "provider": "openrouter",
+            "parameters": {"model": "openai/gpt-4o-mini"},   # present in MODEL_COSTS
+            "pricing": {"prompt_per_mtok": 42.0, "completion_per_mtok": 43.0,
+                        "fetched": "2026-09-02"},
+        }
+        rate = CostEstimator._get_model_cost_rate(est, entry)
+        self.assertEqual((rate["input"], rate["output"]), (42.0, 43.0))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

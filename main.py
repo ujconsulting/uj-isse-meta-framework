@@ -2421,16 +2421,54 @@ class ISEEGuardrails:
             
         return models * template_count * variations * domains
     
+    # Measured on 2026-09-02 over 23 real responses across the configured portfolio:
+    # 4,075-15,565 characters, mean ≈8,760, i.e. roughly 2,190 tokens. 2,500 is that
+    # rounded up. It replaces the previous heuristic of 0.85 × max_tokens, which was
+    # defensible while max_tokens was 4,096 but predicts 13,600 output tokens per call at
+    # the current 16,000 — overstating a run's cost by a factor of five.
+    # ⚠️ One measurement, one query, one day. Re-measure before trusting it further.
+    TYPICAL_RESPONSE_TOKENS = 2500
+    TYPICAL_PROMPT_TOKENS = 350
+
     @staticmethod
-    def estimate_cost(combinations, has_api_key=True):
-        """Estimate API cost based on combination count."""
+    def estimate_cost(combinations, has_api_key=True, config_path="openrouter_config.json"):
+        """Estimate API cost for a number of combinations, in USD.
+
+        Derived from the prices recorded per model in the configuration, which were taken
+        from OpenRouter's own catalogue. This used to return `combinations * 0.08` — a
+        constant unrelated to the configured portfolio, which for the current one
+        overstates a 66-call run as $5.28 against roughly $0.30. Guardrail thresholds are
+        checked against this number, so a wrong figure does not merely mislead: it can
+        block a run that costs cents, or wave through one that does not.
+
+        Falls back to the old constant only when the configuration carries no prices, and
+        says so, rather than silently presenting a guess as a measurement.
+        """
         if not has_api_key:
             return 0.0
-        
-        # Conservative cost estimate: $0.05-0.15 per combination
-        # Varies based on model and query complexity
-        avg_cost_per_combination = 0.08
-        return combinations * avg_cost_per_combination
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                models = json.load(f)["models"]["api_models"]
+            priced = [m["pricing"] for m in models
+                      if not m.get("disabled") and isinstance(m.get("pricing"), dict)]
+            if not priced:
+                raise ValueError("no per-model pricing in configuration")
+
+            # Combinations are distributed across the portfolio, so the mean per-model
+            # cost is the right per-combination figure.
+            per_call = sum(
+                (ISEEGuardrails.TYPICAL_PROMPT_TOKENS * p["prompt_per_mtok"]
+                 + ISEEGuardrails.TYPICAL_RESPONSE_TOKENS * p["completion_per_mtok"])
+                / 1_000_000
+                for p in priced
+            ) / len(priced)
+            return combinations * per_call
+        except Exception as exc:
+            print(f"⚠️  Falling back to a flat $0.08/combination estimate — could not read "
+                  f"per-model pricing from {config_path} ({exc}). The figure below is a "
+                  f"placeholder, not an estimate of this portfolio.")
+            return combinations * 0.08
     
     @staticmethod
     def estimate_time_minutes(combinations, simulate=False):

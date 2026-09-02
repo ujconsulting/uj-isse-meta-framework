@@ -19,7 +19,13 @@
         ],
         "cost_tier": "premium",
         "ui_priority": "strategic",
-        "strategic_order": 1
+        "strategic_order": 1,
+        "pricing": {
+          "prompt_per_mtok": 2.0,
+          "completion_per_mtok": 10.0,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_gpt_56_luna",
@@ -38,7 +44,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "strategic",
-        "strategic_order": 2
+        "strategic_order": 2,
+        "pricing": {
+          "prompt_per_mtok": 0.2,
+          "completion_per_mtok": 1.2,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_gemini_35_fl",
@@ -58,7 +70,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "strategic",
-        "strategic_order": 3
+        "strategic_order": 3,
+        "pricing": {
+          "prompt_per_mtok": 0.3,
+          "completion_per_mtok": 2.5,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_grok_43",
@@ -78,7 +96,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "strategic",
-        "strategic_order": 4
+        "strategic_order": 4,
+        "pricing": {
+          "prompt_per_mtok": 1.25,
+          "completion_per_mtok": 2.5,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_deepseek_v4_f",
@@ -99,7 +123,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "strategic",
-        "strategic_order": 5
+        "strategic_order": 5,
+        "pricing": {
+          "prompt_per_mtok": 0.065,
+          "completion_per_mtok": 0.18,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_qwen_37_plus",
@@ -119,7 +149,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "strategic",
-        "strategic_order": 6
+        "strategic_order": 6,
+        "pricing": {
+          "prompt_per_mtok": 0.32,
+          "completion_per_mtok": 1.28,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_glm_53_flash",
@@ -139,7 +175,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "strategic",
-        "strategic_order": 7
+        "strategic_order": 7,
+        "pricing": {
+          "prompt_per_mtok": 0.075,
+          "completion_per_mtok": 0.25,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_kimi_k26",
@@ -159,7 +201,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "strategic",
-        "strategic_order": 8
+        "strategic_order": 8,
+        "pricing": {
+          "prompt_per_mtok": 0.95,
+          "completion_per_mtok": 4.0,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_mistral_small",
@@ -179,7 +227,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "standard",
-        "strategic_order": 9
+        "strategic_order": 9,
+        "pricing": {
+          "prompt_per_mtok": 0.15,
+          "completion_per_mtok": 0.6,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_muse_glimmer",
@@ -198,7 +252,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "standard",
-        "strategic_order": 10
+        "strategic_order": 10,
+        "pricing": {
+          "prompt_per_mtok": 0.3,
+          "completion_per_mtok": 1.2,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_nemotron_35",
@@ -218,7 +278,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "standard",
-        "strategic_order": 11
+        "strategic_order": 11,
+        "pricing": {
+          "prompt_per_mtok": 0.08,
+          "completion_per_mtok": 0.2,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_minimax_m3",
@@ -238,7 +304,13 @@
         ],
         "cost_tier": "standard",
         "ui_priority": "standard",
-        "strategic_order": 12
+        "strategic_order": 12,
+        "pricing": {
+          "prompt_per_mtok": 0.3,
+          "completion_per_mtok": 1.2,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_solar_pro4",
@@ -258,7 +330,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "standard",
-        "strategic_order": 13
+        "strategic_order": 13,
+        "pricing": {
+          "prompt_per_mtok": 0.03,
+          "completion_per_mtok": 0.12,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       },
       {
         "id": "or_hunyuan_3",
@@ -277,7 +355,13 @@
         ],
         "cost_tier": "budget",
         "ui_priority": "standard",
-        "strategic_order": 14
+        "strategic_order": 14,
+        "pricing": {
+          "prompt_per_mtok": 0.132,
+          "completion_per_mtok": 0.528,
+          "source": "openrouter /api/v1/models",
+          "fetched": "2026-09-02"
+        }
       }
     ],
     "ollama_models": [

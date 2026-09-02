@@ -10,6 +10,7 @@ Part of the UX Enhancement Roadmap - Step 1.1: Cost and Time Estimation
 from typing import Dict, Any, List, Optional, Tuple, Union
 import math
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -105,6 +106,19 @@ PROMPT_TOKEN_SIZES = {
     "domain_context": 50,    # ~50 tokens for domain context
     "system_overhead": 100,  # ~100 tokens for system overhead
 }
+
+# Expected output tokens per call — MEASURED, not assumed.
+#
+# 23 real responses across the configured 14-model portfolio on 2026-09-02 ran
+# 4,075-15,565 characters, mean ≈8,760, i.e. roughly 2,190 tokens. 2,500 is that rounded
+# up. This is the first cost figure in this project derived from observation rather than
+# from a guess that looked like one.
+#
+# ⚠️ One query, one day, one portfolio. Reasoning-heavy prompts will exceed it. Treat the
+# resulting estimate as an order of magnitude, not a quote — and re-measure when the
+# portfolio changes. `performance_tracker.py` is where a running average belongs once the
+# usage figures the API returns are actually persisted.
+TYPICAL_RESPONSE_TOKENS = 2500
 
 # Average tokens per minute for model processing
 MODEL_PROCESSING_SPEEDS = {
@@ -293,6 +307,19 @@ class CostEstimator:
         model_params = model_info.get("parameters", {})
         model_name = model_params.get("model", "")
         provider = model_info.get("provider", "").lower()
+
+        # Prices recorded in the configuration win over every table and heuristic below.
+        # They were taken from the provider's own catalogue and travel with the model
+        # entry, so they cannot drift apart from the id they belong to — which is exactly
+        # how MODEL_COSTS came to hold nothing for any currently configured model.
+        embedded = model_info.get("pricing")
+        if isinstance(embedded, dict) and "prompt_per_mtok" in embedded:
+            return {
+                "input": embedded["prompt_per_mtok"],
+                "output": embedded["completion_per_mtok"],
+                "provider": provider or "openrouter",
+                "source": f"config ({embedded.get('fetched', 'undated')})",
+            }
         
         # Generate provider-specific cost key
         provider_model_key = self.get_provider_model_cost_key(model_name, provider)
@@ -321,14 +348,24 @@ class CostEstimator:
                     "provider": "globant"
                 }
         elif provider == "openrouter":
-            # OpenRouter typically has minimal markup
-            base_cost = self._get_base_provider_cost(model_name, "anthropic")
-            if base_cost:
-                return {
-                    "input": base_cost["input"] * 1.0,
-                    "output": base_cost["output"] * 1.0,
-                    "provider": "openrouter"
-                }
+            # ⛔ No guessing. This used to price ANY unknown OpenRouter model as though it
+            # were an Anthropic one — for upstage/solar-pro4 ($0.03/$0.12) that is wrong by
+            # roughly sixty times, and it presented the result with the same confidence as
+            # a real price. OpenRouter fronts 400+ models from a dozen houses; "unknown"
+            # carries no information about cost.
+            #
+            # An estimate that is absent is a visible gap. An estimate that is wrong by two
+            # orders of magnitude is a decision made on fiction. Record the price in the
+            # model's configuration entry (see `pricing` in openrouter_config.json) and
+            # this branch is never reached.
+            logging.getLogger(__name__).warning(
+                "No price known for OpenRouter model %r and none recorded in its "
+                "configuration entry; it is excluded from the cost estimate. "
+                "Add a 'pricing' block to its openrouter_config.json entry.",
+                model_name,
+            )
+            return {"input": 0.0, "output": 0.0, "provider": "openrouter",
+                    "price_unavailable": True, "model": model_name}
         elif provider == "anthropic":
             return MODEL_COSTS["default-medium"]  # Medium cost model
         elif provider == "openai":
@@ -478,13 +515,20 @@ class CostEstimator:
         Returns:
             Estimated number of tokens.
         """
-        # Default response size based on model parameters
         model_params = params.get("parameters", {})
         max_tokens = model_params.get("max_tokens", 1024)
-        
-        # Responses rarely use full max_tokens
-        # Use 85% of max_tokens as a reasonable estimate for average case
-        return int(max_tokens * 0.85)
+
+        # `max_tokens` is a ceiling, not a forecast. Assuming 85% of it was defensible
+        # while the ceiling was 4,096; at the current 16,000 it predicts 13,600 output
+        # tokens per call and overstates a 66-call run as $1.66 where roughly $0.31 is
+        # real — and an estimator that alarms is as useless as one that reassures.
+        #
+        # TYPICAL_RESPONSE_TOKENS is measured, not assumed: 23 real responses across the
+        # configured portfolio on 2026-09-02 ran 4,075-15,565 characters, mean ≈8,760,
+        # about 2,190 tokens. 2,500 is that rounded up.
+        # ⚠️ One query, one day. The ceiling still applies, so a low max_tokens is
+        # respected; re-measure before leaning on the constant harder than that.
+        return int(min(max_tokens * 0.85, TYPICAL_RESPONSE_TOKENS))
     
     def _get_available_models_for_params(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get the list of available models that would be used based on parameters.

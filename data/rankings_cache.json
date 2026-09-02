@@ -1,470 +1,479 @@
 {
   "models": [
     {
-      "id": "minimax-minimax-m1",
-      "name": "MiniMax M1",
-      "provider": "Minimax",
-      "model_param": "minimax/minimax-m1",
+      "id": "google-gemini-3.8-flash",
+      "name": "Gemini 3.8 Flash",
+      "provider": "Google",
+      "model_param": "google/gemini-3.8-flash",
       "cost_tier": "budget",
       "features": [
         "reasoning",
+        "fast",
         "thinking"
       ],
-      "description": "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it to process long sequences\u2014up to 1 million tokens\u2014while maintaining competitive FLOP efficiency. With 456 billion total parameters and 45.9B active per token, this variant is optimized for complex, multi-step reasoning tasks.\n\nTrained via a custom reinforcement learning pipeline (CISPO), M1 excels in long-context understanding, software engineering, agentic tool use, and mathematical reasoning. Benchmarks show strong performance across FullStackBench, SWE-bench, MATH, GPQA, and TAU-Bench, often outperforming other open models like DeepSeek R1 and Qwen3-235B.",
+      "description": "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+      "context_length": 1048576,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.00000075",
+        "completion": "0.00000375",
+        "image": "0.00000075",
+        "audio": "0.00000075",
+        "input_audio_cache": "0.000000075",
+        "web_search": "0.014",
+        "internal_reasoning": "0.00000375",
+        "input_cache_read": "0.000000075",
+        "input_cache_write": "0.0000000416666666666667"
+      }
+    },
+    {
+      "id": "google-gemini-3.8-flash-batch",
+      "name": "Gemini 3.8 Flash (batch)",
+      "provider": "Google",
+      "model_param": "google/gemini-3.8-flash:batch",
+      "cost_tier": "budget",
+      "features": [
+        "reasoning",
+        "fast",
+        "thinking"
+      ],
+      "description": "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+      "context_length": 1048576,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000375",
+        "completion": "0.000001875",
+        "image": "0.000000375",
+        "audio": "0.000000375",
+        "input_audio_cache": "0.0000000375",
+        "web_search": "0.014",
+        "internal_reasoning": "0.000001875",
+        "input_cache_read": "0.0000000375",
+        "input_cache_write": "0.0000000416666666666667"
+      }
+    },
+    {
+      "id": "anthropic-claude-fable-5.1",
+      "name": "Claude Fable 5.1",
+      "provider": "Anthropic",
+      "model_param": "anthropic/claude-fable-5.1",
+      "cost_tier": "balanced",
+      "features": [
+        "coding"
+      ],
+      "description": "Claude Fable 5.1 improves on Claude Fable 5 across the board, with the biggest gains in agentic coding, long-running agentic workflows, and knowledge work: long code refactors, front-end and visual...",
       "context_length": 1000000,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0.0000003",
-        "completion": "0.00000165",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0.00001",
+        "completion": "0.00005",
+        "web_search": "0.01",
+        "input_cache_read": "0.00000025",
+        "input_cache_write": "0.0000125",
+        "input_cache_write_1h": "0.00002"
       }
     },
     {
-      "id": "minimax-minimax-m1-extended",
-      "name": "MiniMax M1 (extended)",
-      "provider": "Minimax",
-      "model_param": "minimax/minimax-m1:extended",
-      "cost_tier": "budget",
+      "id": "anthropic-claude-fable-5.1-batch",
+      "name": "Claude Fable 5.1 (batch)",
+      "provider": "Anthropic",
+      "model_param": "anthropic/claude-fable-5.1:batch",
+      "cost_tier": "balanced",
       "features": [
-        "reasoning",
-        "thinking"
+        "coding"
       ],
-      "description": "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it to process long sequences\u2014up to 1 million tokens\u2014while maintaining competitive FLOP efficiency. With 456 billion total parameters and 45.9B active per token, this variant is optimized for complex, multi-step reasoning tasks.\n\nTrained via a custom reinforcement learning pipeline (CISPO), M1 excels in long-context understanding, software engineering, agentic tool use, and mathematical reasoning. Benchmarks show strong performance across FullStackBench, SWE-bench, MATH, GPQA, and TAU-Bench, often outperforming other open models like DeepSeek R1 and Qwen3-235B.",
-      "context_length": 128000,
+      "description": "Claude Fable 5.1 improves on Claude Fable 5 across the board, with the biggest gains in agentic coding, long-running agentic workflows, and knowledge work: long code refactors, front-end and visual...",
+      "context_length": 1000000,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0.00000055",
-        "completion": "0.0000022",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "web_search": "0.01",
+        "input_cache_read": "0.000000125",
+        "input_cache_write": "0.00000625",
+        "input_cache_write_1h": "0.00001"
       }
     },
     {
-      "id": "google-gemini-2.5-flash-lite-preview-06-17",
-      "name": "Gemini 2.5 Flash Lite Preview 06-17",
-      "provider": "Google",
-      "model_param": "google/gemini-2.5-flash-lite-preview-06-17",
+      "id": "inception-mercury-2.5-preview",
+      "name": "Mercury 2.5 Preview",
+      "provider": "Inception",
+      "model_param": "inception/mercury-2.5-preview",
       "cost_tier": "budget",
       "features": [
         "reasoning",
         "fast",
         "thinking"
       ],
-      "description": "Gemini 2.5 Flash-Lite is a lightweight reasoning model in the Gemini 2.5 family, optimized for ultra-low latency and cost efficiency. It offers improved throughput, faster token generation, and better performance across common benchmarks compared to earlier Flash models. By default, \"thinking\" (i.e. multi-pass reasoning) is disabled to prioritize speed, but developers can enable it via the [Reasoning API parameter](https://openrouter.ai/docs/use-cases/reasoning-tokens) to selectively trade off cost for intelligence. ",
-      "context_length": 1048576,
+      "description": "Mercury 2.5 is the fastest reasoning LLM, and the latest diffusion LLM (dLLM) from Inception. Instead of generating tokens sequentially, Mercury 2.5 produces and refines multiple tokens in parallel, achieving...",
+      "context_length": 260000,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.00000004",
+        "completion": "0.00000015",
+        "input_cache_read": "0.000000004"
+      }
+    },
+    {
+      "id": "ibm-granite-granite-4.2-8b",
+      "name": "Granite 4.2 8B",
+      "provider": "Ibm-Granite",
+      "model_param": "ibm-granite/granite-4.2-8b",
+      "cost_tier": "budget",
+      "features": [
+        "reasoning",
+        "coding",
+        "thinking"
+      ],
+      "description": "Granite 4.2 8B is a dense reasoning model from IBM. It is suited for mathematics, code generation, multilingual dialogue, and agentic workflows that need multi-step reasoning. It supports full, low-effort,...",
+      "context_length": 131072,
       "max_completion_tokens": null,
       "pricing": {
         "prompt": "0.0000001",
-        "completion": "0.0000004",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "completion": "0.00000015",
+        "input_cache_read": "0.00000005"
       }
     },
     {
-      "id": "google-gemini-2.5-flash",
-      "name": "Gemini 2.5 Flash",
-      "provider": "Google",
-      "model_param": "google/gemini-2.5-flash",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "coding",
-        "fast",
-        "thinking"
-      ],
-      "description": "Gemini 2.5 Flash is Google's state-of-the-art workhorse model, specifically designed for advanced reasoning, coding, mathematics, and scientific tasks. It includes built-in \"thinking\" capabilities, enabling it to provide responses with greater accuracy and nuanced context handling. \n\nAdditionally, Gemini 2.5 Flash is configurable through the \"max tokens for reasoning\" parameter, as described in the documentation (https://openrouter.ai/docs/use-cases/reasoning-tokens#max-tokens-for-reasoning).",
-      "context_length": 1048576,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.0000003",
-        "completion": "0.0000025",
-        "request": "0",
-        "image": "0.001238",
-        "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.000000075",
-        "input_cache_write": "0.0000003833"
-      }
-    },
-    {
-      "id": "google-gemini-2.5-pro",
-      "name": "Gemini 2.5 Pro",
-      "provider": "Google",
-      "model_param": "google/gemini-2.5-pro",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "coding",
-        "thinking"
-      ],
-      "description": "Gemini 2.5 Pro is Google\u2019s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs \u201cthinking\u201d capabilities, enabling it to reason through responses with enhanced accuracy and nuanced context handling. Gemini 2.5 Pro achieves top-tier performance on multiple benchmarks, including first-place positioning on the LMArena leaderboard, reflecting superior human-preference alignment and complex problem-solving abilities.",
-      "context_length": 1048576,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001",
-        "request": "0",
-        "image": "0.00516",
-        "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.00000031",
-        "input_cache_write": "0.000001625"
-      }
-    },
-    {
-      "id": "moonshotai-kimi-dev-72b-free",
-      "name": "Kimi Dev 72b (free)",
-      "provider": "Moonshotai",
-      "model_param": "moonshotai/kimi-dev-72b:free",
-      "cost_tier": "free",
-      "features": [
-        "reasoning",
-        "coding",
-        "free",
-        "thinking"
-      ],
-      "description": "Kimi-Dev-72B is an open-source large language model fine-tuned for software engineering and issue resolution tasks. Based on Qwen2.5-72B, it is optimized using large-scale reinforcement learning that applies code patches in real repositories and validates them via full test suite execution\u2014rewarding only correct, robust completions. The model achieves 60.4% on SWE-bench Verified, setting a new benchmark among open-source models for software bug fixing and code reasoning.",
-      "context_length": 131072,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0",
-        "completion": "0",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "openai-o3-pro",
-      "name": "o3 Pro",
-      "provider": "OpenAI",
-      "model_param": "openai/o3-pro",
-      "cost_tier": "balanced",
-      "features": [
-        "reasoning",
-        "thinking"
-      ],
-      "description": "The o-series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o3-pro model uses more compute to think harder and provide consistently better answers.\n\nNote that BYOK is required for this model. Set up here: https://openrouter.ai/settings/integrations",
-      "context_length": 200000,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.00002",
-        "completion": "0.00008",
-        "request": "0",
-        "image": "0.0153",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "x-ai-grok-3-mini",
-      "name": "Grok 3 Mini",
-      "provider": "X-Ai",
-      "model_param": "x-ai/grok-3-mini",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "fast",
-        "thinking"
-      ],
-      "description": "A lightweight model that thinks before responding. Fast, smart, and great for logic-based tasks that do not require deep domain knowledge. The raw thinking traces are accessible.",
-      "context_length": 131072,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.0000003",
-        "completion": "0.0000005",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.000000075"
-      }
-    },
-    {
-      "id": "x-ai-grok-3",
-      "name": "Grok 3",
-      "provider": "X-Ai",
-      "model_param": "x-ai/grok-3",
+      "id": "tencent-hy4-preview",
+      "name": "Hy4 preview",
+      "provider": "Tencent",
+      "model_param": "tencent/hy4-preview",
       "cost_tier": "budget",
       "features": [
         "coding"
       ],
-      "description": "Grok 3 is the latest model from xAI. It's their flagship model that excels at enterprise use cases like data extraction, coding, and text summarization. Possesses deep domain knowledge in finance, healthcare, law, and science.\n\n",
-      "context_length": 131072,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.000003",
-        "completion": "0.000015",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.00000075"
-      }
-    },
-    {
-      "id": "mistralai-magistral-small-2506",
-      "name": "Magistral Small 2506",
-      "provider": "Mistral",
-      "model_param": "mistralai/magistral-small-2506",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "thinking"
-      ],
-      "description": "Magistral Small is a 24B parameter instruction-tuned model based on Mistral-Small-3.1 (2503), enhanced through supervised fine-tuning on traces from Magistral Medium and further refined via reinforcement learning. It is optimized for reasoning and supports a wide multilingual range, including over 20 languages.",
-      "context_length": 40000,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.0000005",
-        "completion": "0.0000015",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "mistralai-magistral-medium-2506",
-      "name": "Magistral Medium 2506",
-      "provider": "Mistral",
-      "model_param": "mistralai/magistral-medium-2506",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "creative",
-        "thinking"
-      ],
-      "description": "Magistral is Mistral's first reasoning model. It is ideal for general purpose use requiring longer thought processing and better accuracy than with non-reasoning LLMs. From legal research and financial forecasting to software development and creative storytelling \u2014 this model solves multi-step challenges where transparency and precision are critical.",
-      "context_length": 40960,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.000002",
-        "completion": "0.000005",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "mistralai-magistral-medium-2506-thinking",
-      "name": "Magistral Medium 2506 (thinking)",
-      "provider": "Mistral",
-      "model_param": "mistralai/magistral-medium-2506:thinking",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "creative",
-        "thinking"
-      ],
-      "description": "Magistral is Mistral's first reasoning model. It is ideal for general purpose use requiring longer thought processing and better accuracy than with non-reasoning LLMs. From legal research and financial forecasting to software development and creative storytelling \u2014 this model solves multi-step challenges where transparency and precision are critical.",
-      "context_length": 40960,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.000002",
-        "completion": "0.000005",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "google-gemini-2.5-pro-preview",
-      "name": "Gemini 2.5 Pro Preview 06-05",
-      "provider": "Google",
-      "model_param": "google/gemini-2.5-pro-preview",
-      "cost_tier": "budget",
-      "features": [
-        "reasoning",
-        "coding",
-        "thinking"
-      ],
-      "description": "Gemini 2.5 Pro is Google\u2019s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs \u201cthinking\u201d capabilities, enabling it to reason through responses with enhanced accuracy and nuanced context handling. Gemini 2.5 Pro achieves top-tier performance on multiple benchmarks, including first-place positioning on the LMArena leaderboard, reflecting superior human-preference alignment and complex problem-solving abilities.\n",
+      "description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
       "context_length": 1048576,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0.00000125",
-        "completion": "0.00001",
-        "request": "0",
-        "image": "0.00516",
-        "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.00000031",
-        "input_cache_write": "0.000001625"
+        "prompt": "0.000000834",
+        "completion": "0.000002501",
+        "input_cache_read": "0.000000042"
       }
     },
     {
-      "id": "sentientagi-dobby-mini-unhinged-plus-llama-3.1-8b",
-      "name": "Dobby Mini Plus Llama 3.1 8B",
-      "provider": "Sentientagi",
-      "model_param": "sentientagi/dobby-mini-unhinged-plus-llama-3.1-8b",
-      "cost_tier": "budget",
+      "id": "inclusionai-ling-3.0-flash-fin-free",
+      "name": "Ling 3.0 Flash Fin (free)",
+      "provider": "Inclusionai",
+      "model_param": "inclusionai/ling-3.0-flash-fin:free",
+      "cost_tier": "free",
       "features": [
+        "fast",
         "free"
       ],
-      "description": "Dobby-Mini-Leashed-Llama-3.1-8B and Dobby-Mini-Unhinged-Llama-3.1-8B are language models fine-tuned from Llama-3.1-8B-Instruct. Dobby models have a strong conviction towards personal freedom, decentralization, and all things crypto \u2014 even when coerced to speak otherwise. \n\nDobby-Mini-Leashed-Llama-3.1-8B and Dobby-Mini-Unhinged-Llama-3.1-8B have their own unique, uhh, personalities. The two versions are being released to be improved using the community\u2019s feedback, which will steer the development of a 70B model.\n\n",
-      "context_length": 131072,
+      "description": "Ling 3.0 Flash Fin is a finance-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for real-world investment...",
+      "context_length": 262144,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0.0000002",
-        "completion": "0.0000002",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0",
+        "completion": "0"
       }
     },
     {
-      "id": "deepseek-deepseek-r1-distill-qwen-7b",
-      "name": "R1 Distill Qwen 7B",
-      "provider": "DeepSeek",
-      "model_param": "deepseek/deepseek-r1-distill-qwen-7b",
+      "id": "~z-ai-glm-flash-latest",
+      "name": "GLM Flash Latest",
+      "provider": "~Z-Ai",
+      "model_param": "~z-ai/glm-flash-latest",
+      "cost_tier": "budget",
+      "features": [
+        "fast"
+      ],
+      "description": "This model always redirects to the latest model in the GLM Flash family.",
+      "context_length": 1310720,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000075",
+        "completion": "0.00000025",
+        "input_cache_read": "0.000000015"
+      }
+    },
+    {
+      "id": "qwen-qwen3.8-flash",
+      "name": "Qwen3.8 Flash",
+      "provider": "Qwen",
+      "model_param": "qwen/qwen3.8-flash",
       "cost_tier": "budget",
       "features": [
         "reasoning",
         "coding",
+        "multimodal",
+        "fast",
         "thinking"
       ],
-      "description": "DeepSeek-R1-Distill-Qwen-7B is a 7 billion parameter dense language model distilled from DeepSeek-R1, leveraging reinforcement learning-enhanced reasoning data generated by DeepSeek's larger models. The distillation process transfers advanced reasoning, math, and code capabilities into a smaller, more efficient model architecture based on Qwen2.5-Math-7B. This model demonstrates strong performance across mathematical benchmarks (92.8% pass@1 on MATH-500), coding tasks (Codeforces rating 1189), and general reasoning (49.1% pass@1 on GPQA Diamond), achieving competitive accuracy relative to larger models while maintaining smaller inference costs.",
-      "context_length": 131072,
+      "description": "Qwen3.8 Flash is a multimodal reasoning model from Alibaba. It is suited for coding assistance, agentic workflows, visual understanding, document and codebase analysis, desktop interaction, chart analysis, and long-video analysis.",
+      "context_length": 1000000,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.00000047",
+        "input_cache_read": "0.000000016",
+        "input_cache_write": "0.0000002"
+      }
+    },
+    {
+      "id": "z-ai-glm-5.3-flash",
+      "name": "GLM 5.3 Flash",
+      "provider": "Z-Ai",
+      "model_param": "z-ai/glm-5.3-flash",
+      "cost_tier": "budget",
+      "features": [
+        "coding",
+        "multimodal",
+        "fast"
+      ],
+      "description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
+      "context_length": 1310720,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000075",
+        "completion": "0.00000025",
+        "input_cache_read": "0.000000015"
+      }
+    },
+    {
+      "id": "z-ai-glm-5.3-flash-batch",
+      "name": "GLM 5.3 Flash (batch)",
+      "provider": "Z-Ai",
+      "model_param": "z-ai/glm-5.3-flash:batch",
+      "cost_tier": "budget",
+      "features": [
+        "coding",
+        "multimodal",
+        "fast"
+      ],
+      "description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
+      "context_length": 1048575,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.0000005",
+        "input_cache_read": "0.00000003"
+      }
+    },
+    {
+      "id": "meta-muse-spark-1.2-contributor",
+      "name": "Muse Spark 1.2 Contributor",
+      "provider": "Meta",
+      "model_param": "meta/muse-spark-1.2-contributor",
+      "cost_tier": "budget",
+      "features": [
+        "reasoning",
+        "thinking"
+      ],
+      "description": "Muse Spark 1.2 contributor tier is a reasoning model from Meta designed for developers who want to start building at an even lower cost. It\u2019s meaningfully cheaper than Muse Spark...",
+      "context_length": 1048576,
       "max_completion_tokens": null,
       "pricing": {
         "prompt": "0.0000001",
         "completion": "0.0000002",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "web_search": "0.0025",
+        "input_cache_read": "0.000000002"
       }
     },
     {
-      "id": "deepseek-deepseek-r1-0528-qwen3-8b-free",
-      "name": "Deepseek R1 0528 Qwen3 8B (free)",
+      "id": "deepseek-deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek V4 Flash Vision Exp",
       "provider": "DeepSeek",
-      "model_param": "deepseek/deepseek-r1-0528-qwen3-8b:free",
-      "cost_tier": "free",
+      "model_param": "deepseek/deepseek-v4-flash-vision-exp",
+      "cost_tier": "budget",
       "features": [
-        "reasoning",
-        "coding",
-        "free",
-        "thinking"
+        "multimodal",
+        "fast"
       ],
-      "description": "DeepSeek-R1-0528 is a lightly upgraded release of DeepSeek R1 that taps more compute and smarter post-training tricks, pushing its reasoning and inference to the brink of flagship models like O3 and Gemini 2.5 Pro.\nIt now tops math, programming, and logic leaderboards, showcasing a step-change in depth-of-thought.\nThe distilled variant, DeepSeek-R1-0528-Qwen3-8B, transfers this chain-of-thought into an 8 B-parameter form, beating standard Qwen3 8B by +10 pp and tying the 235 B \u201cthinking\u201d giant on AIME 2024.",
-      "context_length": 131072,
+      "description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
+      "context_length": 1048576,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0",
-        "completion": "0",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0.00000022",
+        "completion": "0.00000066",
+        "input_cache_read": "0.000000007",
+        "overrides": [
+          {
+            "utc_days": [
+              "saturday",
+              "sunday"
+            ],
+            "prompt": "0.00000022",
+            "completion": "0.00000066",
+            "input_cache_read": "0.000000007"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 0,
+            "utc_end": 100,
+            "prompt": "0.00000022",
+            "completion": "0.00000066",
+            "input_cache_read": "0.000000007"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 100,
+            "utc_end": 400,
+            "prompt": "0.00000044",
+            "completion": "0.00000132",
+            "input_cache_read": "0.000000014"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 400,
+            "utc_end": 600,
+            "prompt": "0.00000022",
+            "completion": "0.00000066",
+            "input_cache_read": "0.000000007"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 600,
+            "utc_end": 1000,
+            "prompt": "0.00000044",
+            "completion": "0.00000132",
+            "input_cache_read": "0.000000014"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 1000,
+            "utc_end": 0,
+            "prompt": "0.00000022",
+            "completion": "0.00000066",
+            "input_cache_read": "0.000000007"
+          }
+        ]
       }
     },
     {
-      "id": "deepseek-deepseek-r1-0528-qwen3-8b",
-      "name": "Deepseek R1 0528 Qwen3 8B",
-      "provider": "DeepSeek",
-      "model_param": "deepseek/deepseek-r1-0528-qwen3-8b",
+      "id": "tencent-hy-mt2-1.8b",
+      "name": "Hy-MT2-1.8B",
+      "provider": "Tencent",
+      "model_param": "tencent/hy-mt2-1.8b",
+      "cost_tier": "budget",
+      "features": [],
+      "description": "Hy-MT2-1.8B is a compact 1.8B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided...",
+      "context_length": 8192,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000044",
+        "completion": "0.000000177"
+      }
+    },
+    {
+      "id": "tencent-hy-mt2-30b-a3b",
+      "name": "Hy-MT2-30B-A3B",
+      "provider": "Tencent",
+      "model_param": "tencent/hy-mt2-30b-a3b",
+      "cost_tier": "budget",
+      "features": [],
+      "description": "Hy-MT2-30B-A3B is Tencent's flagship translation model in the Hy-MT2 family. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and...",
+      "context_length": 8192,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000074",
+        "completion": "0.000000295"
+      }
+    },
+    {
+      "id": "~z-ai-glm-latest",
+      "name": "GLM Latest",
+      "provider": "~Z-Ai",
+      "model_param": "~z-ai/glm-latest",
+      "cost_tier": "budget",
+      "features": [],
+      "description": "This model always redirects to the latest GLM model from Z.ai.",
+      "context_length": 1310720,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.00000115",
+        "completion": "0.0000035",
+        "input_cache_read": "0.0000001"
+      }
+    },
+    {
+      "id": "tencent-hy-mt2-7b",
+      "name": "Hy-MT2-7B",
+      "provider": "Tencent",
+      "model_param": "tencent/hy-mt2-7b",
+      "cost_tier": "budget",
+      "features": [],
+      "description": "Hy-MT2-7B is a 7B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided translation.",
+      "context_length": 8192,
+      "max_completion_tokens": null,
+      "pricing": {
+        "prompt": "0.000000074",
+        "completion": "0.000000295"
+      }
+    },
+    {
+      "id": "z-ai-glm-5.3",
+      "name": "GLM 5.3",
+      "provider": "Z-Ai",
+      "model_param": "z-ai/glm-5.3",
       "cost_tier": "budget",
       "features": [
         "reasoning",
-        "coding",
         "thinking"
       ],
-      "description": "DeepSeek-R1-0528 is a lightly upgraded release of DeepSeek R1 that taps more compute and smarter post-training tricks, pushing its reasoning and inference to the brink of flagship models like O3 and Gemini 2.5 Pro.\nIt now tops math, programming, and logic leaderboards, showcasing a step-change in depth-of-thought.\nThe distilled variant, DeepSeek-R1-0528-Qwen3-8B, transfers this chain-of-thought into an 8 B-parameter form, beating standard Qwen3 8B by +10 pp and tying the 235 B \u201cthinking\u201d giant on AIME 2024.",
-      "context_length": 131072,
+      "description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
+      "context_length": 1310720,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0.00000005",
-        "completion": "0.0000001",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0.0000014",
+        "completion": "0.0000044",
+        "input_cache_read": "0.00000026"
       }
     },
     {
-      "id": "deepseek-deepseek-r1-0528-free",
-      "name": "R1 0528 (free)",
-      "provider": "DeepSeek",
-      "model_param": "deepseek/deepseek-r1-0528:free",
-      "cost_tier": "free",
-      "features": [
-        "reasoning",
-        "free",
-        "thinking"
-      ],
-      "description": "May 28th update to the [original DeepSeek R1](/deepseek/deepseek-r1) Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active in an inference pass.\n\nFully open-source model.",
-      "context_length": 163840,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0",
-        "completion": "0",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "deepseek-deepseek-r1-0528",
-      "name": "R1 0528",
-      "provider": "DeepSeek",
-      "model_param": "deepseek/deepseek-r1-0528",
+      "id": "qwen-qwen3.8-27b",
+      "name": "Qwen3.8 27B",
+      "provider": "Qwen",
+      "model_param": "qwen/qwen3.8-27b",
       "cost_tier": "budget",
       "features": [
-        "reasoning",
-        "thinking"
-      ],
-      "description": "May 28th update to the [original DeepSeek R1](/deepseek/deepseek-r1) Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active in an inference pass.\n\nFully open-source model.",
-      "context_length": 128000,
-      "max_completion_tokens": null,
-      "pricing": {
-        "prompt": "0.0000005",
-        "completion": "0.00000215",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      }
-    },
-    {
-      "id": "sarvamai-sarvam-m-free",
-      "name": "Sarvam-M (free)",
-      "provider": "Sarvamai",
-      "model_param": "sarvamai/sarvam-m:free",
-      "cost_tier": "free",
-      "features": [
-        "reasoning",
         "coding",
-        "free",
+        "multimodal",
         "thinking"
       ],
-      "description": "Sarvam-M is a 24 B-parameter, instruction-tuned derivative of Mistral-Small-3.1-24B-Base-2503, post-trained on English plus eleven major Indic languages (bn, hi, kn, gu, mr, ml, or, pa, ta, te). The model introduces a dual-mode interface: \u201cnon-think\u201d for low-latency chat and a optional \u201cthink\u201d phase that exposes chain-of-thought tokens for more demanding reasoning, math, and coding tasks. \n\nBenchmark reports show solid gains versus similarly sized open models on Indic-language QA, GSM-8K math, and SWE-Bench coding, making Sarvam-M a practical general-purpose choice for multilingual conversational agents as well as analytical workloads that mix English, native Indic scripts, or romanized text.",
-      "context_length": 32768,
+      "description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
+      "context_length": 1000000,
       "max_completion_tokens": null,
       "pricing": {
-        "prompt": "0",
-        "completion": "0",
-        "request": "0",
-        "image": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
+        "prompt": "0.000000425",
+        "completion": "0.00000255",
+        "input_cache_read": "0.000000085",
+        "input_cache_write": "0.00000053125"
       }
     }
   ],
-  "timestamp": 1750457344.637012,
+  "timestamp": 1788376870.4562485,
   "source": "openrouter_api",
   "api_success": true,
   "error_message": null
