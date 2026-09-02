@@ -117,7 +117,7 @@ class PerformanceTracker:
         summary_file = run_dir / "run_summary.md"
         if summary_file.exists():
             run_data['files_found'].append('run_summary.md')
-            with open(summary_file, 'r') as f:
+            with open(summary_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
             # Extract key metrics using regex

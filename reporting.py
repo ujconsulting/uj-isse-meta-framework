@@ -623,7 +623,7 @@ class ReportingSystem:
         file_path = os.path.join(self.output_directory, filename)
         
         # Write the content to the file
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
         return file_path
@@ -718,7 +718,7 @@ class ReportingSystem:
         all_headers = headers + sorted(list(criterion_headers))
         
         # Write the CSV file
-        with open(file_path, 'w', newline='') as f:
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(all_headers)
             
@@ -811,7 +811,7 @@ class ReportingSystem:
         ]
         
         # Write the CSV file
-        with open(file_path, 'w', newline='') as f:
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(headers)
             
@@ -925,7 +925,7 @@ class ReportingSystem:
         # Convert to pandas DataFrame and aggregate
         if not model_data:
             # If no data, create empty CSV
-            with open(file_path, 'w', newline='') as f:
+            with open(file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(["model_id", "model_name", "model_provider", "count", "avg_score", "avg_response_length", "avg_execution_time"])
             return file_path

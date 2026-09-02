@@ -201,7 +201,7 @@ class ISEEWebDemo:
         """Filter models to return only strategically curated ones based on openrouter_config.json metadata."""
         try:
             # Load openrouter_config.json to get strategic model metadata
-            with open('openrouter_config.json', 'r') as f:
+            with open('openrouter_config.json', 'r', encoding='utf-8') as f:
                 config = json.load(f)
             
             # Create lookup of strategic models by ID and model_param
@@ -246,7 +246,7 @@ class ISEEWebDemo:
     def _get_fallback_models(self) -> List[Dict[str, Any]]:
         """Get models from config file and hardcoded fallback list."""
         try:
-            with open('openrouter_config.json', 'r') as f:
+            with open('openrouter_config.json', 'r', encoding='utf-8') as f:
                 config = json.load(f)
             
             models = []
@@ -372,7 +372,7 @@ class ISEEWebDemo:
         try:
             collections_file = Path("llm_collections.json")
             if collections_file.exists():
-                with open(collections_file, 'r') as f:
+                with open(collections_file, 'r', encoding='utf-8') as f:
                     collections_data = json.load(f)
                 self.llm_collections = collections_data.get("collections", {})
                 self.logger.info(f"Loaded {len(self.llm_collections)} LLM collections")
@@ -1411,7 +1411,7 @@ class ISEEWebDemo:
         
         # Load config to check existing models
         try:
-            with open('openrouter_config.json', 'r') as f:
+            with open('openrouter_config.json', 'r', encoding='utf-8') as f:
                 config = json.load(f)
                 config_models = {model.get('id'): model for model in config.get('models', {}).get('api_models', [])}
                 # Also create a reverse lookup by model parameter
@@ -2835,7 +2835,7 @@ def cognitive_diversity_explorer(run_id):
     
     # Update the HTML to use the correct API endpoint with run_id
     try:
-        with open(explorer_html, 'r') as f:
+        with open(explorer_html, 'r', encoding='utf-8') as f:
             html_content = f.read()
         
         # Replace the generic API endpoint with the run-specific one
@@ -2857,7 +2857,7 @@ def cognitive_diversity_explorer(run_id):
         )
         
         # Write the updated HTML back
-        with open(explorer_html, 'w') as f:
+        with open(explorer_html, 'w', encoding='utf-8') as f:
             f.write(updated_html)
             
     except Exception as e:
@@ -2875,7 +2875,7 @@ def cognitive_diversity_data(run_id):
         return jsonify({'error': 'Cognitive diversity data not found'}), 404
     
     try:
-        with open(index_file, 'r') as f:
+        with open(index_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         return jsonify(data)

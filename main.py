@@ -473,7 +473,7 @@ class ISEEApplication:
             FileNotFoundError: If the file does not exist.
             json.JSONDecodeError: If the file is not valid JSON.
         """
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
         
         # Process configuration
@@ -567,7 +567,7 @@ class ISEEApplication:
             "synthesized_ideas": self.synthesized_ideas
         }
         
-        with open(state_path, 'w') as f:
+        with open(state_path, 'w', encoding='utf-8') as f:
             json.dump(state, f, indent=2)
         
         print(f"State saved to {state_path}")
@@ -589,7 +589,7 @@ class ISEEApplication:
             if os.path.exists(state_path_to_try):
                 state_path = state_path_to_try
         
-        with open(state_path, 'r') as f:
+        with open(state_path, 'r', encoding='utf-8') as f:
             state = json.load(f)
         
         self.combinations = state.get("combinations", [])
@@ -2829,7 +2829,7 @@ def main():
         # Load domain-specific config if provided
         if args.domain_config and os.path.exists(args.domain_config):
             try:
-                with open(args.domain_config, 'r') as f:
+                with open(args.domain_config, 'r', encoding='utf-8') as f:
                     domain_data = json.load(f)
                     if "domains" in domain_data:
                         # Create a new domain manager to replace the existing one
@@ -2962,7 +2962,7 @@ def main():
     # Load domain-specific config if provided
     if args.domain_config and os.path.exists(args.domain_config):
         try:
-            with open(args.domain_config, 'r') as f:
+            with open(args.domain_config, 'r', encoding='utf-8') as f:
                 domain_data = json.load(f)
                 if "domains" in domain_data:
                     # Create a new domain manager to replace the existing one
@@ -3000,7 +3000,7 @@ def main():
                     
                 # Write the output
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                with open(output_path, 'w') as f:
+                with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(output)
                 print(f"Output saved to {output_path}")
                 
@@ -3308,7 +3308,7 @@ def main():
             
             # Write the output with metadata header
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            with open(output_path, 'w') as f:
+            with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(combined_output)
             print(f"Output saved to {output_path}")
             
@@ -3362,7 +3362,7 @@ def main():
                     analysis_filename = f"analysis.{extension}"
                     analysis_path = os.path.join(output_directory, analysis_filename)
                     
-                    with open(analysis_path, 'w') as f:
+                    with open(analysis_path, 'w', encoding='utf-8') as f:
                         f.write(analysis_report)
                     
                     print(f"Analysis report saved to: {analysis_path}")

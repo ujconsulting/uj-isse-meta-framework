@@ -150,7 +150,7 @@ class DomainManager:
             json.JSONDecodeError: If the file is not valid JSON.
             KeyError: If the file does not contain a 'domains' key.
         """
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         domains_data = data.get('domains')
@@ -170,7 +170,7 @@ class DomainManager:
         domains_data = [domain.to_dict() for domain in self.domains.values()]
         data = {'domains': domains_data}
         
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
     
     def create_domain(

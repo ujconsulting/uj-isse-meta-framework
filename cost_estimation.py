@@ -174,7 +174,7 @@ class CostEstimator:
         # Try to load models from configuration files
         for config_file in config_files:
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 
                 # Process models in the config file

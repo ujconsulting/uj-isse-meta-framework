@@ -332,5 +332,65 @@ class TestConfiguredPortfolio(unittest.TestCase):
             self.assertTrue(m.get("disabled"), f"{m.get('id')} must be disabled")
 
 
+class TestTextFilesAreUtf8(unittest.TestCase):
+    """Every text-mode open() in the core modules must state its encoding.
+
+    Without it Python uses the locale encoding, which on Windows is cp1252. This
+    framework writes model output to disk, and model output routinely contains
+    characters cp1252 cannot represent — a run once completed all fourteen calls,
+    evaluated them, ranked them, synthesised the findings, and then died writing the
+    final file because the text contained "→" (U+2192).
+
+    A lint-style test rather than a per-path one: the defect class is "somebody added an
+    open() and forgot", and only a sweep catches the next one.
+    """
+
+    CORE_MODULES = [
+        "main.py", "app.py", "reporting.py", "analysis.py", "query_export.py",
+        "cognitive_diversity_extractor.py", "evaluation_scoring.py", "domain_manager.py",
+        "performance_tracker.py", "cost_estimation.py",
+    ]
+
+    def test_no_text_open_without_encoding(self):
+        import io
+        import re
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        call = re.compile(r"open\((?P<args>[^()]*?(?:\([^()]*\)[^()]*?)*)\)")
+        text_mode = re.compile(r"""['"]([rwax]\+?t?)['"]""")
+
+        offenders = []
+        for name in self.CORE_MODULES:
+            path = os.path.join(root, name)
+            if not os.path.exists(path):
+                continue
+            source = io.open(path, encoding="utf-8").read()
+            for lineno, line in enumerate(source.splitlines(), 1):
+                for m in call.finditer(line):
+                    args = m.group("args")
+                    if "encoding" in args or "b'" in args or 'b"' in args:
+                        continue
+                    if text_mode.search(args):
+                        offenders.append(f"{name}:{lineno}  {line.strip()[:80]}")
+
+        self.assertEqual(
+            offenders, [],
+            "text-mode open() without encoding='utf-8' (cp1252 on Windows):\n  "
+            + "\n  ".join(offenders))
+
+    def test_non_ascii_round_trips_through_a_written_file(self):
+        """The concrete characters that broke a real run."""
+        import io
+        import tempfile
+        from pathlib import Path
+
+        payload = "Rang 1 → Rang 2 · Wärmepumpe · „Handwerker\" · 🏆"
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "out.md"
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(payload)
+            self.assertEqual(io.open(target, encoding="utf-8").read(), payload)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

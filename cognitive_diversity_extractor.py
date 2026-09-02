@@ -125,7 +125,7 @@ class CognitiveDiversityExtractor:
             print(f"Warning: {self.combinations_csv} not found")
             return performance_data
             
-        with open(self.combinations_csv, 'r') as f:
+        with open(self.combinations_csv, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 combination_id = row['combination_id']
@@ -482,7 +482,7 @@ class CognitiveDiversityExtractor:
 
     def save_index(self, index: Dict[str, Any]):
         """Save the cognitive diversity index to file."""
-        with open(self.metadata_output, 'w') as f:
+        with open(self.metadata_output, 'w', encoding='utf-8') as f:
             json.dump(index, f, indent=2)
         
         print(f"💾 Saved cognitive diversity index to: {self.metadata_output}")
