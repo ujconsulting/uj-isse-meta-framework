@@ -602,3 +602,27 @@ ls scripts/*pipeline*      # Should show pipeline scripts
 - Comprehensive commit messages with session context
 - CLAUDE.md updated to reflect current development state
 - always remember to check the last few session summaries for context. They are in the `session-summaries` folder.
+## Plan-Härtung mit claudex-loop (Cross-Model-Review)
+
+Vor Umbauten, bei denen ein Denkfehler *im Plan* später teuer wird, läuft der Plan durch
+`/claudex-loop:plan-review` — Claude schreibt, OpenAI Codex greift ihn read-only an.
+
+**Einsetzen bei:** Provider-/Modell-Änderungen (OpenRouter ↔ Globant), Scoring-Umbauten,
+Änderungen am Run-Ausgabelayout, neuen Flask-Routen, allem am Übergang Web-UI → CLI-
+Subprozess, Deployment. **Nicht bei:** Einzeilern, reiner Doku, allem unter ~30 Minuten.
+
+**Tabu-Scope in einem Satz:** Codex schreibt nicht, aber alles Gelesene geht an OpenAI —
+also nie `.env`, `data/output/`, `data/analysis_reports/`, `data/*.db`, `archive/`
+öffnen; Quellcode, Doku, Tests und `.env.template` sind freigegeben. Den Scope im
+Review-Prompt wiederholen, nicht darauf vertrauen, dass Codex von selbst wegschaut.
+
+**Ablage:** Plan *und* Review-Log nach `docs/plans/JJJJ-MM-TT-<thema>[-review-log].md`,
+beides committen.
+
+**Modell-Pin:** `gpt-5.6-terra` / `model_reasoning_effort=high` (Wrapper-Vorgabe);
+⛔ nicht `sol` — reißt an echten Plänen das 10-Minuten-Ceiling. Aufruf **immer** über
+`python tools/codex_ro.py`, nie direkt `codex exec`, und das Bash-Timeout auf 600000 ms
+setzen.
+
+**Prüfkatalog, Tabu-Scope im Detail und die Abnahme-Maßstäbe stehen in `AGENTS.md`** —
+nicht hier duplizieren, zwei Quellen driften.

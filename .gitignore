@@ -67,3 +67,15 @@ temp-for-reference-ollama_prompting_tool_v1/
 
 # Ignore screenshots
 tests/screen-shots-testing-*/
+
+# claudex-loop Arbeitsdateien im Repo-Root (transient).
+# Endgueltige Plaene + Review-Logs gehoeren nach docs/plans/.
+/PLAN.md
+/PLAN-REVIEW-LOG.md
+
+# Zwischenablage der Skills (SCRATCH_DIR-Rueckfall, wenn der Harness
+# kein eigenes Scratchpad stellt). Enthaelt Codex-Rohausgaben und
+# Scanner-Reports - nie committen. NIE nach /tmp ausweichen: weltlesbar,
+# und unter macOS ein Symlink auf /private/tmp, was den Pfadabgleich
+# gegen `git rev-parse --show-toplevel` bricht.
+/.claudex-tmp/
