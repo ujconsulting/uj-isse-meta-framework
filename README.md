@@ -30,7 +30,7 @@ open http://localhost:5001/isee-ui
 # Your results are saved as isee_result.md - access via web UI or data/output/ folder
 ```
 
-**That's it!** The ISEE web interface is now running with 300+ AI models and 10 cognitive frameworks ready for systematic multi-perspective research.
+**That's it!** The interface comes up with 14 curated models and 11 cognitive frameworks, ready for systematic multi-perspective research. Pick your language in the header — the interface is available in English and German.
 
 **📥 Results Preview**: After your analysis completes, your comprehensive findings are saved as `isee_result.md` (the primary result file). Access your results 3 ways: quick web viewing, complete package download, or direct file system access. *See [Results Access](#-results-access) section below for full details.*
 
@@ -43,7 +43,7 @@ ISEE transforms how we approach complex research by moving beyond single-perspec
 ### The Core Innovation
 
 **Traditional AI**: Ask a question → Get an answer → Accept cognitive limitations  
-**ISEE**: Ask a question → **Systematically explore 60 perspectives** → Discover insights you couldn't anticipate
+**ISEE**: Ask a question → **Systematically explore 66 perspectives** → Discover insights you couldn't anticipate
 
 ### Why Cognitive Diversity Matters
 
@@ -55,10 +55,10 @@ Complex problems resist simple solutions. The most transformative breakthroughs 
 
 ### The Architecture
 
-**🧠 14 Heterogeneous AI Models**  
-Each chosen for distinct reasoning capabilities and knowledge synthesis patterns
+**🧠 14 Models from 14 Different Houses**  
+Anthropic, OpenAI, Google, xAI, DeepSeek, Alibaba, Zhipu, Moonshot, Mistral, Meta, NVIDIA, MiniMax, Upstage and Tencent — one each. House diversity is the point; running fourteen variants of the same lineage would defeat it. Model ids and prices are verified against the live OpenRouter catalogue and recorded in `openrouter_config.json`.
 
-**🔍 10 Cognitive Framework Lenses**  
+**🔍 11 Cognitive Framework Lenses**  
 From analytical rigor to contrarian deconstruction, ensuring comprehensive perspective coverage
 
 **📊 Dynamic Knowledge Domain Mapping**  
@@ -71,7 +71,7 @@ Cluster-based organization revealing complementary, contradictory, and emergent 
 
 1. **Enter your query**: Simply type your research question or complex problem
 2. **Click "ANALYZE WITH ISEE"**: That's it - no parameter configuration needed
-3. **Watch real-time progress**: See live indicators as ISEE systematically explores 60 perspectives across models and frameworks
+3. **Watch real-time progress**: Live indicators as ISEE works through 66 combinations of model, framework and domain. Calls that fail are reported as failures — never quietly replaced by a plausible-looking substitute.
 4. **Review comprehensive results**: Access organized insights, scoring, and visual reports
 5. **Download or view**: Multiple format options for your complete analysis
 
@@ -83,16 +83,19 @@ Cluster-based organization revealing complementary, contradictory, and emergent 
 - **Professional academic aesthetic** optimized for research contexts
 - **Real-time progress tracking** with cognitive framework indicators
 - **Ultra-simplified interface**: Just enter query and click analyze
-- **14 LLMs configured automatically** for targeted exploration
+- **14 models configured automatically**, 8 of them in the curated default selection
+- **English and German interface**, switchable in the header and remembered per browser
 
 ### Comprehensive Analysis Standard
-- **60 systematic calls** across models and frameworks automatically
-- **~15 minutes** processing time for maximum cognitive diversity
+- **66 systematic calls** across models and frameworks automatically
+- **~4 minutes** for a full run, **~1 minute** for an 11-call validation
+- **~$0.31 per full run, ~$0.05 per validation** — measured from billed tokens, not estimated
 - **Real-time indicators** show progress across all frameworks and models
 - **True multi-perspective exploration** beyond single-model limitations
 
 ### Advanced Features
-- **300+ AI models** via OpenRouter integration
+- **Cost reported per model, per house and in total** after every run, with the remaining OpenRouter balance
+- **One API key** (OpenRouter) reaches all fourteen houses
 - **Dynamic domain generation** based on query context
 - **Multiple result formats** with instant viewing and download options
 - **Professional report generation** with academic styling
@@ -103,7 +106,7 @@ Cluster-based organization revealing complementary, contradictory, and emergent 
 
 ### Prerequisites
 - Python 3.8 or higher
-- OpenRouter API key (manages 300+ models with single key)
+- OpenRouter API key (one key reaches every configured model)
 - Git
 
 ### Step-by-Step Installation
@@ -149,7 +152,7 @@ python app.py
 
 1. **Open ISEE**: Navigate to http://localhost:5001/isee-ui
 2. **Enter your query**: Type your research question or complex problem
-3. **Click "ANALYZE WITH ISEE"**: No configuration needed - the system automatically runs 60 comprehensive calls
+3. **Click "Run Full Analysis"**: No configuration needed - the system runs 66 calls
 4. **Watch real-time progress**: See live indicators showing progress across all cognitive frameworks and models
 5. **Review results**: Explore organized insights and download comprehensive reports in multiple formats
 
@@ -162,7 +165,7 @@ python app.py
 
 **Comprehensive Cognitive Framework Coverage**:
 - Analytical, Creative, Critical, Integrative, Pragmatic
-- First Principles, Systems, Contrarian, Historical, Futurist
+- First Principles, Systems, Contrarian, Historical, Futurist, Disruption
 - Each framework reveals different aspects of your query across all selected models
 
 **Server Management**:
@@ -279,20 +282,21 @@ Each query reveals insights across multiple cognitive clusters, ensuring compreh
 ### Core Python Capabilities
 
 **🎯 Primary Controllers:**
-- **`main.py`** (2,304 lines) - Core execution engine and CLI orchestration
-- **`app.py`** (2,304 lines) - Flask web interface with REST API endpoints
+- **`main.py`** (3,473 lines) - Core execution engine and CLI orchestration
+- **`app.py`** (3,031 lines) - Flask web interface with REST API endpoints
 
 **🤖 AI Integration Layer:**
-- **`model_api_integration.py`** (931 lines) - Unified gateway to 300+ AI models across 5 providers
-- **`openrouter_rankings_service.py`** (413 lines) - Dynamic model ranking and caching
+- **`model_api_integration.py`** - Provider gateway. Sends only the sampling parameters a model actually accepts, and carries the HTTP status on every error
+- **`openrouter_rankings_service.py`** - Ranking metadata only. It is *not* a source of models: the configuration decides what exists, and rankings merely annotate it
 
 **🧠 Cognitive Diversity Engine:**
-- **`cognitive_framework_visualizer.py`** (373 lines) - Manages 10 cognitive frameworks (Analytical, Creative, Critical, etc.)
+- **`cognitive_framework_visualizer.py`** (379 lines) - Manages 11 cognitive frameworks (Analytical, Creative, Critical, …, Disruption)
 - **`domain_manager.py`** (410 lines) - Knowledge domain contextualization
 
 **📊 Intelligence & Analytics:**
 - **`reporting.py`** (1,056 lines) - Result synthesis and comprehensive report generation
-- **`cost_estimation.py`** (747 lines) - Real-time cost/time estimation
+- **`cost_estimation.py`** (958 lines) - Pre-run cost/time estimation, priced from the rates recorded per model
+- **`run_cost_report.py`** - What a run actually cost, from the tokens the provider billed
 - **`performance_tracker.py`** (413 lines) - SQLite-based performance monitoring
 
 ### Data Flow
@@ -307,7 +311,7 @@ Synthesis & Reporting → Performance Tracking
 
 🔬 **Cognitive Diversity**: 10 distinct thinking frameworks ensure comprehensive analysis beyond single-perspective limitations
 
-🌐 **Unified Model Access**: Single interface to 300+ models via OpenRouter with graceful fallback mechanisms
+🌐 **Unified Model Access**: One OpenRouter key for all fourteen houses. A failed call is recorded as a failure with its HTTP status — there is no fallback that invents a response
 
 💰 **Economic Intelligence**: Transparent cost management and real-time estimation before execution
 
@@ -340,15 +344,17 @@ Synthesis & Reporting → Performance Tracking
 ### Repository Structure
 
 ```
-ISEE_Meta_Framework/
-├── isee-ui.html              # Primary web interface
+uj-isse-meta-framework/
+├── isee-ui.html              # Primary web interface (incl. EN/DE switch)
 ├── app.py                    # Flask backend server
 ├── main.py                   # Core ISEE logic
+├── openrouter_config.json    # Models, parameters and their recorded prices
+├── run_cost_report.py        # Actual cost of a run, from billed tokens
 ├── requirements.txt          # Python dependencies
 ├── scripts/                  # Development tools
-├── content/                  # Documentation
+├── tests/                    # Test suite
+├── docs/                     # Documentation and plans
 ├── data/                     # Output and tracking
-├── prompts/                  # Template library
 └── archive/                  # Historical versions
 ```
 
@@ -374,6 +380,55 @@ the full text, or <https://www.apache.org/licenses/LICENSE-2.0>.
 > grant, and ships the complete Apache-2.0 text so recipients actually receive a copy of
 > the license as Section 4(a) requires. The original copyright line is preserved
 > unchanged. No relicensing is intended or claimed.
+
+---
+
+## 🔎 Honest by Default
+
+Three behaviours in this fork exist because their absence had cost real work.
+
+**A failed call is reported as a failure.** Every branch that could not reach a model
+used to return a *simulated* answer instead, so a run in which all 66 calls returned
+HTTP 400 produced a complete, plausible, entirely fabricated report — and called itself a
+success. Failures are now recorded with model, HTTP status and error text, written to
+`failed_responses/` rather than mixed in with real answers, excluded from scoring, and
+counted in the summary. The exit code says which happened: `0` all succeeded, `1` some
+failed, `2` nothing worked.
+
+**Cost is reported from what was billed, not from what was assumed.** After every run:
+
+```
+  Model                      calls        in       out       USD
+  GPT-5.6 Luna                   3       344     6,265    0.0076
+  TOTAL                          3                        0.0076
+
+  By house (the vendor behind the model, not the gateway):
+    openai                   1 model(s)    3 calls     0.0076  100.0%
+
+  OpenRouter balance: $18.11 remaining ($113.37 used of $131.48)
+  At this run's cost that is roughly 2,386 more runs.
+```
+
+Token counts come from OpenRouter's own `usage` block; prices from the `pricing` recorded
+on each model in `openrouter_config.json`. A model with no recorded price is listed as
+unpriced and left out of the total rather than silently given a default. Run
+`python run_cost_report.py <run_directory>` to reprint it, or with no arguments for just
+the balance.
+
+**Estimates are checkable.** The pre-run estimate and the post-run bill are both shown, so
+the forecast can be compared against reality instead of standing unchecked. That matters:
+the previous estimate was a flat $0.08 per combination regardless of which models were
+configured, which overstated a full run by a factor of seventeen.
+
+---
+
+## 🌍 Interface Language
+
+English and German, switchable in the header (`EN | DE`). The choice is remembered per
+browser; on a first visit the browser's own language decides.
+
+Not translated: the Cognitive Diversity Explorer, `/docs`, `/about`, and messages produced
+by the backend. Those are separate surfaces.
 
 ---
 
