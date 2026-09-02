@@ -34,10 +34,10 @@
 ## Configuration Notes
 
 ### API Requirements
-- **OpenRouter**: Existing API key configured and working (sk-or-v1-9a5e18ec7b2920d...)
+- **OpenRouter**: Existing API key configured and working (sk-or-v1-[REDACTED]...)
 - **Globant Enterprise**: Fully operational with verified credentials:
-  - GLOBANT_API_KEY=isee_framework_i_Dymh1x1lBro9UbiKnZWX0woHkZoUc-hez1T6hIYcfTHXRa7s3jUDWLFfFF-GFOIk4B15GodTkllxbs7PG4SA0g
-  - GLOBANT_ORG_ID=ece1d2ab-981e-4c24-b628-fec5757fe77e
+  - GLOBANT_API_KEY=[REDACTED]
+  - GLOBANT_ORG_ID=[REDACTED]
   - GLOBANT_BASE_URL=https://api.saia.ai
 
 ### Dependencies
