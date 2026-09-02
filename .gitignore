@@ -79,3 +79,9 @@ tests/screen-shots-testing-*/
 # und unter macOS ein Symlink auf /private/tmp, was den Pfadabgleich
 # gegen `git rev-parse --show-toplevel` bricht.
 /.claudex-tmp/
+
+# Vertrauliche Sicherheitsunterlagen (Meldungen, Fund-Details, Kontakt-Entwürfe).
+# ⛔ Dieses Repo ist öffentlich — hier liegen Dokumente, die Fundstellen beschreiben
+#    und deshalb nie committet werden dürfen. SECURITY.md im Root ist bewusst NICHT
+#    betroffen (öffentlich gewollt).
+/docs/security/
