@@ -649,9 +649,18 @@ class OpenRouterClient(ModelAPIClient):
                 
                 raise APIIntegrationError(f"Provider {provider_name} error {error_code}: {error_message}")
             
+            # Keep what the provider actually billed. OpenRouter returns a `usage` block
+            # with the real token counts and, when asked, the real cost; discarding it
+            # left every cost figure in this project an estimate derived from an assumed
+            # response length. Recorded on the instance rather than returned, because
+            # `generate()` promises a string to a dozen call sites and changing that
+            # contract to carry metadata would break all of them.
+            self.last_usage = response_data.get("usage") or {}
+            self.last_model = response_data.get("model") or params.get("model")
+
             # Standard OpenAI-compatible response parsing
             return response_data["choices"][0]["message"]["content"]
-        
+
         except requests.RequestException as e:
             raise APIIntegrationError(f"Request to OpenRouter API failed: {str(e)}")
         except (KeyError, IndexError, ValueError) as e:

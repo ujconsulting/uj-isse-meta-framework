@@ -1458,11 +1458,25 @@ class ISEEApplication:
         end_time = time.time()
         duration = end_time - start_time
 
+        # Token counts as the provider billed them, not as we guessed. Without these every
+        # cost figure stays an estimate built on an assumed response length.
+        usage = getattr(client, "last_usage", None) or {}
+
         return {
             "combination_id": combination["id"],
             "status": "succeeded",
             "prompt": prompt,
             "response": response_text,
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+                # OpenRouter reports its own cost when the account has it enabled; None
+                # simply means we price it ourselves from the configured rates.
+                "reported_cost_usd": usage.get("cost"),
+                "model": getattr(client, "last_model", None)
+                         or model_params.get("model"),
+            },
             "metadata": {
                 "model": model_id,
                 "template_style": template_style,
@@ -3430,6 +3444,19 @@ def main():
     # exited 0 — so any caller checking `$?`, including CI and shell pipelines, read total
     # failure as success. This is the last place that still said "fine" regardless.
     results = getattr(app, "results", None) or {}
+
+    # What the run actually cost, from the tokens the provider billed — printed next to
+    # the estimate that preceded it, so the two can be compared instead of the forecast
+    # standing unchecked forever.
+    if results and not args.simulate:
+        try:
+            import run_cost_report
+
+            summary = run_cost_report.summarise(results, config_path=args.config)
+            print(run_cost_report.format_report(summary, run_cost_report.remaining_credit()))
+        except Exception as exc:
+            print(f"⚠️  Could not produce the cost report: {exc}")
+
     if results:
         succeeded, failed = ISEEApplication._partition_successful(results)
         if failed and not succeeded:
