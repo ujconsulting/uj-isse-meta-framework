@@ -548,29 +548,37 @@ This transforms ISEE into something **unprecedented in the AI space**:
 
 ## Git Branch Management & Development Workflow
 
-### Current Repository Structure (August 2025)
+### Current Repository Structure (verified 2026-09-02)
 
-**Main Development Branch (`main`)**
-- **Status**: Clean, synchronized with remote, latest Globant examples integrated (August 29, 2025)
-- **Latest Updates**: Comprehensive Globant API code examples package for colleague integration
-- **New Features**: Enhanced reasoning models support with `reasoning_effort` parameter
-- **Code Examples**: 6-file comprehensive package (2,178 lines) covering setup, clients, error handling, and documentation
-- **Git Management**: Successfully resolved branch divergence, local version now authoritative
-- **Archive Preserved**: `archive-remote-main` branch contains previous remote commits if needed
-- **Purpose**: Stable development branch with production-ready Globant integration examples
-- **Next Session**: Ready for colleague handoff or further ISEE framework development
+This repository is a **fork** of
+[joseph-fajen/ISEE_Meta_Framework](https://github.com/joseph-fajen/ISEE_Meta_Framework),
+published as `ujconsulting/uj-isse-meta-framework` (renamed 2026-09-02 to match the
+working directory). See README → "About This Fork" for the attribution and license notice.
 
-**Pipeline Research Branch (`feature/raw-response-analysis-to-csv-pipeline`)**
-- **Status**: Complete preservation of experimental pipeline work
-- **Content**: 87 files, 11,823+ insertions covering CSV generation and raw response analysis
-- **Components**: 
-  - Hybrid ensemble analysis integration with Claude Sonnet 4
-  - Automated CSV generation from AI responses
-  - Pipeline testing and debugging scripts (62+ test files)
-  - Raw response analysis and structured data extraction
-  - Enhanced error handling and production reliability features
-- **Purpose**: Experimental line exploring structured data extraction from ISEE responses
-- **Access**: `git checkout feature/raw-response-analysis-to-csv-pipeline`
+**`main`**
+- Identical to upstream `main` up to `a35f081` (2025-08-30); the only commits of our own
+  are the license-compliance fix and the claudex-loop wiring.
+- Remote: `origin` = our fork. `upstream` = joseph-fajen's repository (read-only).
+
+**`upstream-refactor-codebase-plan`**
+- Upstream's active refactoring line, fetched into this fork on 2026-09-02.
+  15 commits, Dec 3–6 2025, +6,156/−5,016 lines.
+- **What it does**: removes the `app.py` → `main.py` subprocess pattern (direct
+  `isee_engine.py` imports), drops OpenRouter entirely in favour of Globant, flattens the
+  output layout to `data/output/run_TIMESTAMP`, and fixes three model mislabels.
+- **Why we did NOT adopt it**: it consolidates on Globant Enterprise AI, for which this
+  account has no access — Globant is sales-led with no self-serve signup and no public
+  price list. Phase 6 is also unfinished. Its *architectural* gains are
+  provider-independent and can be cherry-picked later.
+- **Measured, contrary to its own plan document**: the plan claims "−48%, ~2,500 lines
+  removed"; the core is actually **104 lines larger** (12,465 → 12,569). OpenRouter was
+  archived rather than deleted, and Phase 6 added more UI than Phases 1–5 removed.
+
+⚠️ **Corrected 2026-09-02**: this section previously described two branches,
+`feature/raw-response-analysis-to-csv-pipeline` ("87 files, 11,823+ insertions") and
+`archive-remote-main`. **Neither exists** — not locally, not in this fork, not upstream.
+The documented `git checkout` for them fails. Either the work was never pushed or it was
+lost; do not plan around it.
 
 ### Branch Management Best Practices
 
@@ -586,14 +594,15 @@ git checkout -b feature/your-new-feature
 git commit -m "your changes"
 ```
 
-**For Pipeline Research Continuation:**
+**For inspecting upstream's refactoring line:**
 ```bash
-# Switch to pipeline branch to continue CSV/analysis work
-git checkout feature/raw-response-analysis-to-csv-pipeline
+# Read-only look at what upstream rebuilt (do not merge without deciding on Globant)
+git checkout upstream-refactor-codebase-plan
+cat docs/refactoring-plan.md
 
-# Verify all pipeline work is present
-ls data/pipeline_results/  # Should show CSV files
-ls scripts/*pipeline*      # Should show pipeline scripts
+# Pull newer upstream work into the fork
+git fetch upstream
+git log --oneline main..upstream/main
 ```
 
 **For Session Handoffs:**
