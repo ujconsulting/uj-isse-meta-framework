@@ -42,6 +42,7 @@ def load_rates(config_path: str = CONFIG_PATH) -> Dict[str, Dict[str, float]]:
             "output": pricing["completion_per_mtok"],
             "fetched": pricing.get("fetched", "undated"),
             "name": model.get("name", model["id"]),
+            "api_model": model["parameters"]["model"],
         }
         # Reachable by either key: results record the configuration id, while the API
         # echoes back the provider's model string.
@@ -104,9 +105,31 @@ def summarise(results: Dict[str, Any], config_path: str = CONFIG_PATH) -> Dict[s
         else:
             row["cost_usd"] += cost
 
+    # Roll the models up by HOUSE — the vendor before the slash in the model id
+    # (anthropic/…, openai/…). Today the portfolio holds one model per house so the two
+    # views coincide, but that is a property of this configuration, not of the report:
+    # add a second Anthropic model and only this level answers "what did Anthropic cost".
+    # Note that the *provider* field is "openrouter" for every entry — OpenRouter is the
+    # gateway, not the house, and grouping by it would produce a single row.
+    per_house: Dict[str, Dict[str, Any]] = {}
+    for model_id, row in per_model.items():
+        api_model = (rates.get(model_id) or {}).get("api_model") or model_id
+        house = api_model.split("/")[0] if "/" in api_model else "unknown"
+        bucket = per_house.setdefault(house, {
+            "calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
+            "cost_usd": 0.0, "models": 0, "priced": True,
+        })
+        bucket["calls"] += row["calls"]
+        bucket["prompt_tokens"] += row["prompt_tokens"]
+        bucket["completion_tokens"] += row["completion_tokens"]
+        bucket["cost_usd"] += row["cost_usd"]
+        bucket["models"] += 1
+        bucket["priced"] = bucket["priced"] and row["priced"]
+
     total = sum(r["cost_usd"] for r in per_model.values() if r["priced"])
     return {
         "per_model": per_model,
+        "per_house": per_house,
         "total_cost_usd": total,
         "priced_calls": sum(r["calls"] for r in per_model.values() if r["priced"]),
         "unpriced_models": unpriced,
@@ -152,6 +175,16 @@ def format_report(summary: Dict[str, Any], credit: Optional[Tuple[float, float, 
         lines.append("  " + "─" * 62)
         lines.append(f"  {'TOTAL':<26}{summary['priced_calls']:>6}"
                      f"{'':>10}{'':>10}{summary['total_cost_usd']:>10.4f}")
+
+    houses = summary.get("per_house") or {}
+    if len(houses) > 1:
+        lines += ["", "  By house (the vendor behind the model, not the gateway):"]
+        for house, row in sorted(houses.items(), key=lambda kv: -kv[1]["cost_usd"]):
+            cost = f"{row['cost_usd']:.4f}" if row["priced"] else "unpriced"
+            share = (row["cost_usd"] / summary["total_cost_usd"] * 100
+                     if summary["total_cost_usd"] else 0)
+            lines.append(f"    {house:<22}{row['models']:>3} model(s)"
+                         f"{row['calls']:>5} calls{cost:>11}{share:>7.1f}%")
 
     if summary["unpriced_models"]:
         lines += ["", f"  ⚠️  No price recorded for: {', '.join(summary['unpriced_models'])}",

@@ -53,6 +53,35 @@
             gap: 30px;
         }
 
+        /* Language switch — deliberately quiet: it belongs beside the nav links, not
+           competing with them. Sized and coloured to read as part of the same row. */
+        .lang-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: rgba(255, 255, 255, 0.45);
+            font-size: 0.85rem;
+        }
+        .lang-switch button {
+            background: none;
+            border: none;
+            padding: 2px 4px;
+            cursor: pointer;
+            color: rgba(255, 255, 255, 0.8);
+            font: inherit;
+            letter-spacing: 0.04em;
+            transition: opacity 0.15s ease, color 0.15s ease;
+        }
+        .lang-switch button:hover { color: #fff; opacity: 1 !important; }
+        .lang-switch button[aria-pressed="true"] {
+            color: #fff;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.7);
+        }
+        .lang-switch button:focus-visible {
+            outline: 2px solid rgba(255, 255, 255, 0.8);
+            outline-offset: 2px;
+        }
+
         .nav-links a {
             color: rgba(255, 255, 255, 0.8);
             text-decoration: none;
@@ -1911,6 +1940,13 @@
             <a href="/docs">Documentation</a>
             <a href="#">Examples</a>
             <a href="/about">About</a>
+            <span class="lang-switch" role="group" aria-label="Interface language">
+                <button type="button" data-lang-option="en" aria-pressed="true"
+                        title="English interface">EN</button>
+                <span aria-hidden="true">|</span>
+                <button type="button" data-lang-option="de" aria-pressed="false"
+                        title="Deutsche Oberfläche">DE</button>
+            </span>
         </nav>
     </header>
 
@@ -1945,7 +1981,7 @@
                                 <div class="step-description">
                                     Test your query with <strong>"Validate Query"</strong> to preview performance and approach quality. This quick validation runs 11 targeted calls across key cognitive frameworks to ensure your question will generate meaningful insights.
                                 </div>
-                                <div class="step-meta">~$0.07, 1 minute</div>
+                                <div class="step-meta">~$0.05, 1 minute</div>
                             </div>
                         </div>
                         
@@ -1956,7 +1992,7 @@
                                 <div class="step-description">
                                     Run <strong>"Full Analysis"</strong> when satisfied with validation results. This comprehensive research process orchestrates 66 calls across 12 heterogeneous AI models and 11 cognitive frameworks to reveal breakthrough perspectives hiding between different ways of thinking.
                                 </div>
-                                <div class="step-meta">~$0.50, 4 minutes</div>
+                                <div class="step-meta">~$0.31, 4 minutes</div>
                             </div>
                         </div>
                         
@@ -4573,5 +4609,283 @@
         document.head.appendChild(style);
 
     </script>
+    <script>
+    /* ---------------------------------------------------------------------------
+       Interface language (English / German).
+       -------------------------------------------------------------------------
+       Retrofitted as a runtime layer rather than by tagging several hundred elements
+       with data-i18n attributes. The markup is one 4,500-line file whose visible text is
+       woven through it; editing every string in place would have touched far more of the
+       document than the feature is worth, and each edit is a chance to break layout that
+       nobody would notice until a run was in progress.
+
+       So: translate by matching the exact English text at runtime. Each node keeps its
+       original in a property, which is what makes switching back exact rather than a
+       reverse lookup that would mistranslate anything appearing in both directions.
+
+       A MutationObserver re-applies to content the app renders later — model cards,
+       progress lines, results — because most of what a user reads during a run does not
+       exist when the page loads.
+
+       Untranslated strings simply stay English. That is the intended failure mode: a
+       missing entry shows the original wording, never an empty element or a key.
+       --------------------------------------------------------------------------- */
+    const I18N_DE = {
+        // Header and navigation
+        "Systematic Multi-Perspective Research Engine": "Systematische Mehrperspektiven-Forschungsmaschine",
+        "Documentation": "Dokumentation",
+        "Examples": "Beispiele",
+        "About": "Über",
+
+        // Instructions
+        "How to Use ISEE for Multi-Perspective Research": "ISEE für Mehrperspektiven-Forschung nutzen",
+        "Optimize Your Research Query": "Forschungsfrage schärfen",
+        "Craft your research question thoughtfully, then leverage the": "Formulieren Sie Ihre Frage sorgfältig und nutzen Sie dann",
+        "\"Enhance Query\"": "„Frage verbessern\"",
+        "Validate Before Full Analysis": "Vor der Vollanalyse validieren",
+        "Test your query with": "Testen Sie Ihre Frage mit",
+        "\"Validate Query\"": "„Frage validieren\"",
+        "Execute Comprehensive Analysis": "Vollanalyse ausführen",
+        "Run": "Starten Sie",
+        "\"Full Analysis\"": "„Vollanalyse\"",
+        "Monitor Real-Time Progress": "Fortschritt live verfolgen",
+        "Observe live API calls visualization as ISEE executes each unique combination of AI model, cognitive framework, and knowledge domain. Track progress through the sophisticated parallel execution system optimized for maximum cognitive diversity.":
+            "Verfolgen Sie live, wie ISEE jede Kombination aus KI-Modell, kognitivem Rahmen und Wissensdomäne ausführt — über die parallele Ausführung, die auf größtmögliche kognitive Vielfalt ausgelegt ist.",
+        "Explore Multi-Dimensional Results": "Ergebnisse mehrdimensional erkunden",
+        "Cognitive Diversity Explorer": "Explorer für kognitive Vielfalt",
+        "Discover Hidden Insights": "Verborgene Erkenntnisse finden",
+        "Use the Cognitive Diversity Explorer to uncover contrarian viewpoints, alternative implementation approaches, and minority perspectives that challenge conventional thinking—often the source of true breakthrough insights in complex research domains.":
+            "Nutzen Sie den Explorer, um gegenläufige Standpunkte, alternative Umsetzungswege und Minderheitsperspektiven zu finden — oft die Quelle echter Durchbrüche.",
+
+        // Query area
+        "Enter your strategic AI integration question or complex organizational challenge...":
+            "Geben Sie Ihre strategische Frage oder komplexe Herausforderung ein …",
+        "💡 Try These Example Queries": "💡 Beispielfragen ansehen",
+        "✨ Query Enhancement Suggestions": "✨ Vorschläge zur Verbesserung",
+        "Expected:": "Erwartet:",
+        "quality boost": "Qualitätsgewinn",
+        "Processing:": "Verarbeitung:",
+        "Keep Original": "Original behalten",
+        "Use Selected Enhancement": "Ausgewählte Verbesserung übernehmen",
+        "Auto-apply when selecting enhancement": "Bei Auswahl automatisch übernehmen",
+        "✨ Enhance Query": "✨ Frage verbessern",
+
+        // Provider selection
+        "API Provider Selection": "API-Anbieter",
+        "Current": "Aktiv",
+        "Access to 300+ models via unified API": "Zugriff auf 300+ Modelle über eine einheitliche API",
+        "Models": "Modelle",
+        "Globant Enterprise AI": "Globant Enterprise AI",
+        "Enterprise": "Unternehmen",
+        "Enterprise-grade security with 132 AI models": "Unternehmenssicherheit mit 132 KI-Modellen",
+        "AI Models": "KI-Modelle",
+        "Ready": "Bereit",
+        "API Status": "API-Status",
+        "Hybrid Mode": "Hybridmodus",
+        "Smart": "Intelligent",
+        "Access to 430+ models with intelligent switching": "Zugriff auf 430+ Modelle mit automatischem Wechsel",
+        "Auto": "Automatisch",
+        "Selection": "Auswahl",
+        "Best": "Beste",
+        "Performance": "Leistung",
+        "Checking provider status...": "Anbieterstatus wird geprüft …",
+
+        // Run modes
+        "Run Full Analysis": "Vollanalyse starten",
+        "66 calls across all models and frameworks": "66 Aufrufe über alle Modelle und Rahmen",
+        "LLM Calls": "LLM-Aufrufe",
+        "Minutes": "Minuten",
+        "Minute": "Minute",
+        "🧪 Validate Query": "🧪 Frage validieren",
+        "Test and refine your query before full analysis": "Frage vor der Vollanalyse testen und schärfen",
+        "Validate My Query": "Meine Frage validieren",
+        "Comprehensive Analysis Standard": "Standard der Vollanalyse",
+        "66 systematic calls • ~4 minutes • Maximum cognitive diversity": "66 systematische Aufrufe • ~4 Minuten • Maximale kognitive Vielfalt",
+        "Run Full Analysis Mode": "Modus: Vollanalyse",
+        "Complete multi-model analysis with maximum cognitive diversity. Get comprehensive insights from your validated query.":
+            "Vollständige Analyse über alle Modelle mit maximaler kognitiver Vielfalt.",
+
+        // Live sections
+        "Language Models": "Sprachmodelle",
+        "Cognitive Frameworks": "Kognitive Rahmen",
+        "Knowledge Domains": "Wissensdomänen",
+        "Analyzing Your Query": "Ihre Frage wird analysiert",
+        "ISEE is processing your request across multiple cognitive frameworks":
+            "ISEE bearbeitet Ihre Anfrage über mehrere kognitive Rahmen",
+        "🔄 Live API Calls": "🔄 Laufende API-Aufrufe",
+        "Real-time combination execution": "Ausführung der Kombinationen in Echtzeit",
+        "Currently Processing": "Läuft gerade",
+        "Recent Completions": "Zuletzt abgeschlossen",
+        "Analysis Error:": "Analysefehler:",
+
+        // Results
+        "Frameworks Applied": "Angewandte Rahmen",
+        "Models Consulted": "Befragte Modelle",
+        "Processing Time": "Verarbeitungszeit",
+        "Your comprehensive research findings are saved as": "Ihre Ergebnisse sind gespeichert als",
+        "View Analysis (Quick)": "Analyse ansehen (schnell)",
+        "Open complete analysis in browser tab": "Vollständige Analyse im Browser-Tab öffnen",
+        "Download Complete Package": "Komplettpaket herunterladen",
+        "Get zip file with all result files and CSV details": "ZIP mit allen Ergebnisdateien und CSV-Details",
+        "Explore Cognitive Diversity": "Kognitive Vielfalt erkunden",
+        "Browse all 66 responses with interactive filters": "Alle 66 Antworten mit Filtern durchsehen",
+        "Open isee_result.md (your primary analysis file) in a new browser tab with professional formatting - fastest way to read results":
+            "isee_result.md in einem neuen Tab öffnen — der schnellste Weg zum Ergebnis",
+        "Download zip file with isee_result.md, CSV query details, and all supporting files - saved to your Downloads folder":
+            "ZIP mit isee_result.md, CSV-Details und allen weiteren Dateien herunterladen",
+        "Explore all 66 individual AI responses with filtering, annotations, and cognitive framework analysis":
+            "Alle 66 Einzelantworten mit Filtern, Notizen und Rahmenanalyse erkunden",
+
+        // Controls and live status text the app writes after load
+        "Toggle instructions": "Anleitung ein-/ausklappen",
+        "OpenRouter API - Active and ready": "OpenRouter-API — aktiv und bereit",
+        "Interface language": "Oberflächensprache",
+
+        // Cognitive frameworks. Names AND their tooltips: the name alone would leave a
+        // German interface explaining "Break down problems systematically" in English.
+        "Analytical": "Analytisch",
+        "Creative": "Kreativ",
+        "Pragmatic": "Pragmatisch",
+        "Critical": "Kritisch",
+        "Integrative": "Integrativ",
+        "Systems": "Systemisch",
+        "Historical": "Historisch",
+        "First Principles": "Erste Prinzipien",
+        "Contrarian": "Gegenläufig",
+        "Futurist": "Zukunftsgerichtet",
+        "Disruption": "Disruptiv",
+        "Analytical - Break down problems systematically": "Analytisch — Probleme systematisch zerlegen",
+        "Creative - Generate novel solutions and ideas": "Kreativ — neue Lösungen und Ideen erzeugen",
+        "Pragmatic - Focus on practical implementations": "Pragmatisch — auf die Umsetzung zielen",
+        "Critical - Evaluate assumptions and evidence": "Kritisch — Annahmen und Belege prüfen",
+        "Integrative - Synthesize multiple perspectives": "Integrativ — Perspektiven zusammenführen",
+        "Systems - Consider holistic relationships": "Systemisch — Zusammenhänge im Ganzen betrachten",
+        "Historical - Learn from past patterns": "Historisch — aus früheren Mustern lernen",
+        "First Principles - Reason from fundamental truths": "Erste Prinzipien — von Grundwahrheiten her denken",
+        "Contrarian - Challenge conventional wisdom": "Gegenläufig — verbreitete Annahmen angreifen",
+        "Futurist - Explore future possibilities": "Zukunftsgerichtet — künftige Möglichkeiten ausloten",
+        "Disruption - Challenge all existing assumptions": "Disruptiv — alle bestehenden Annahmen angreifen",
+
+        // Instruction paragraph tails. The steps are split into several text nodes each,
+        // with an inline <strong> in the middle, so translating only the opening fragment
+        // left every step breaking into English mid-sentence.
+        "button for AI-powered optimization that typically improves analysis scores by 15-25% using validated enhancement patterns.":
+            "-Funktion für die KI-gestützte Optimierung, die die Bewertung typischerweise um 15–25 % verbessert.",
+        "to preview performance and approach quality. This quick validation runs 11 targeted calls across key cognitive frameworks to ensure your question will generate meaningful insights.":
+            ", um Leistung und Herangehensweise vorab zu prüfen. Diese kurze Validierung führt 11 gezielte Aufrufe über die wichtigsten kognitiven Rahmen aus.",
+        "when satisfied with validation results. This comprehensive research process orchestrates 66 calls across 12 heterogeneous AI models and 11 cognitive frameworks to reveal breakthrough perspectives hiding between different ways of thinking.":
+            ", sobald die Validierung überzeugt. Dieser Durchlauf orchestriert 66 Aufrufe über 14 verschiedene KI-Modelle und 11 kognitive Rahmen und legt Perspektiven frei, die zwischen den Denkweisen liegen.",
+        "Access your analysis through three pathways: View the synthesized findings for immediate insights, download the complete research package with all 66 raw responses, or launch the":
+            "Drei Wege zum Ergebnis: die synthetisierten Befunde direkt ansehen, das Komplettpaket mit allen 66 Rohantworten herunterladen, oder den",
+        "to interactively filter and discover the full set of responses, listed from the highest scoring response first.":
+            "öffnen, um alle Antworten zu filtern — sortiert nach Bewertung, beste zuerst.",
+        "Full Analysis": "Vollanalyse",
+
+        // Cost hints. Measured on 2026-09-02 from billed tokens, not the older
+        // $0.07/$0.50 figures which predated the current portfolio.
+        "~$0.05, 1 minute": "~$0,05, 1 Minute",
+        "~$0.31, 4 minutes": "~$0,31, 4 Minuten"
+    };
+
+    const I18N = {
+        lang: "en",
+        observer: null,
+
+        translate(text, dict) {
+            const trimmed = text.trim();
+            if (!trimmed) return null;
+            const hit = dict[trimmed];
+            if (hit === undefined) return null;
+            // Preserve surrounding whitespace: the markup relies on it for spacing
+            // between inline elements, and collapsing it shifts the layout.
+            return text.replace(trimmed, hit);
+        },
+
+        walk(root, dict) {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                acceptNode(node) {
+                    const tag = node.parentElement && node.parentElement.tagName;
+                    // Never touch code the browser executes or styles it applies.
+                    if (tag === "SCRIPT" || tag === "STYLE") return NodeFilter.FILTER_REJECT;
+                    return node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT
+                                                 : NodeFilter.FILTER_REJECT;
+                }
+            });
+            const nodes = [];
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+            nodes.forEach(node => {
+                if (node.__i18nEnglish === undefined) node.__i18nEnglish = node.nodeValue;
+                const source = node.__i18nEnglish;
+                const translated = dict ? this.translate(source, dict) : null;
+                node.nodeValue = translated !== null ? translated : source;
+            });
+
+            const scope = root.querySelectorAll ? root : document;
+            scope.querySelectorAll("[placeholder], [title]").forEach(el => {
+                ["placeholder", "title"].forEach(attr => {
+                    if (!el.hasAttribute(attr)) return;
+                    const key = "__i18nEnglish_" + attr;
+                    if (el[key] === undefined) el[key] = el.getAttribute(attr);
+                    const translated = dict ? this.translate(el[key], dict) : null;
+                    el.setAttribute(attr, translated !== null ? translated : el[key]);
+                });
+            });
+        },
+
+        apply(lang) {
+            this.lang = lang;
+            const dict = lang === "de" ? I18N_DE : null;
+            document.documentElement.lang = lang;
+
+            // Pause the observer while rewriting, or our own edits retrigger it.
+            if (this.observer) this.observer.disconnect();
+            this.walk(document.body, dict);
+            if (this.observer) {
+                this.observer.observe(document.body, {childList: true, subtree: true});
+            }
+
+            document.querySelectorAll("[data-lang-option]").forEach(btn => {
+                btn.setAttribute("aria-pressed",
+                    btn.dataset.langOption === lang ? "true" : "false");
+                btn.style.opacity = btn.dataset.langOption === lang ? "1" : "0.55";
+                btn.style.fontWeight = btn.dataset.langOption === lang ? "600" : "400";
+            });
+
+            try { localStorage.setItem("isee-lang", lang); } catch (e) { /* private mode */ }
+        },
+
+        init() {
+            let saved = null;
+            try { saved = localStorage.getItem("isee-lang"); } catch (e) { /* ignore */ }
+            // No stored choice: follow the browser. A German browser getting an English
+            // interface by default is the thing this feature exists to avoid.
+            const lang = saved || ((navigator.language || "en").toLowerCase().startsWith("de")
+                                   ? "de" : "en");
+
+            let pending = null;
+            this.observer = new MutationObserver(() => {
+                // Debounced: the app inserts progress rows in bursts, and translating on
+                // every insertion would run the walker dozens of times a second.
+                clearTimeout(pending);
+                pending = setTimeout(() => {
+                    if (this.lang === "de") this.apply("de");
+                }, 120);
+            });
+
+            document.querySelectorAll("[data-lang-option]").forEach(btn => {
+                btn.addEventListener("click", () => this.apply(btn.dataset.langOption));
+            });
+
+            this.apply(lang);
+        }
+    };
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => I18N.init());
+    } else {
+        I18N.init();
+    }
+    </script>
+
 </body>
 </html>
