@@ -8,8 +8,22 @@ Idea Synthesis and Extraction Engine framework.
 import os
 import json
 import argparse
+import re
 import sys
 from typing import Dict, Any, List, Optional, Tuple
+
+# Force UTF-8 on stdout/stderr.
+#
+# This module prints emoji throughout. When stdout is a console Python picks a codec that
+# copes; when it is a PIPE — which is exactly how `app.py` runs this file
+# (subprocess.Popen(..., stdout=PIPE)) — Windows falls back to cp1252 and the first emoji
+# raises UnicodeEncodeError, killing the run partway through with a traceback that says
+# nothing about the real work. Reconfiguring is a no-op where the codec is already UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 import time
 import random
 from datetime import datetime
@@ -2892,9 +2906,40 @@ def main():
         print("4. Run 'python command_wizard.py' for interactive OpenRouter setup")
     print()
     
+    # Refuse provider modes this installation cannot actually serve, before spending
+    # anything. Two separate problems are covered here:
+    #
+    #   1. Globant Enterprise AI needs credentials that are not obtainable self-serve —
+    #      it is a sales-led enterprise platform with no public signup. Without them,
+    #      every Globant-routed call fails, and prior to the failure-visibility work
+    #      those failures were reported as successful simulated answers.
+    #   2. KNOWN LIMITATION: `--provider` does not in fact route execution. Clients are
+    #      created per model from each config entry's own `provider` field, so a run with
+    #      `--provider globant` against an OpenRouter portfolio still calls OpenRouter.
+    #      Routing through ProviderManager is a separate piece of work; until it exists,
+    #      failing loudly beats a flag that silently means nothing.
+    if args.provider in ("globant", "hybrid"):
+        # A copied .env.template leaves "your_globant_api_key_here" in place, and a
+        # placeholder is a perfectly truthy string — so a bare presence check passes and
+        # every call then fails with an authentication error further downstream, far from
+        # the cause. Treat an obvious placeholder as absent.
+        placeholder = re.compile(r"^(your[_-]|<|xxx|changeme|example|placeholder|\.\.\.)", re.I)
+        missing = [
+            name for name in ("GLOBANT_API_KEY", "GLOBANT_ORG_ID")
+            if not (os.environ.get(name) or "").strip()
+            or placeholder.match((os.environ.get(name) or "").strip())
+        ]
+        if missing:
+            print(f"❌ --provider {args.provider} requires real credentials; "
+                  f"missing or still a placeholder: {', '.join(missing)}")
+            print("   Globant Enterprise AI has no self-serve signup — access is arranged")
+            print("   through their sales process. Use --provider openrouter, which this")
+            print("   configuration is built for.")
+            sys.exit(2)
+
     # Initialize the application
     app = ISEEApplication(config_path=args.config, output_directory=args.output_directory)
-    
+
     # Set provider mode from CLI argument
     app.set_provider_mode(args.provider)
     

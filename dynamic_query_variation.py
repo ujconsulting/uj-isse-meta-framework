@@ -51,7 +51,15 @@ class DynamicQueryVariator:
             api_key: OpenRouter API key. If None, reads from environment.
         """
         self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
-        self.analysis_model = "anthropic/claude-3.5-haiku"  # Fast, cost-efficient
+
+        # A helper model, hardcoded here rather than taken from openrouter_config.json —
+        # which is how it came to point at `anthropic/claude-3.5-haiku` long after that id
+        # stopped resolving. Every call 404'd and the module fell back to heuristic
+        # analysis, logging a warning that reads like a transient network problem.
+        # Overridable so the next id change does not need a code edit.
+        self.analysis_model = os.getenv(
+            "ISEE_QUERY_ANALYSIS_MODEL", "deepseek/deepseek-v4-flash-0731"
+        )
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
         
         if not self.api_key:

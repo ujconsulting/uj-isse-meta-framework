@@ -227,5 +227,110 @@ class TestRawResponseSeparation(unittest.TestCase):
             self.assertIn("a real answer", written[0].read_text(encoding="utf-8"))
 
 
+class TestOpenRouterPayload(unittest.TestCase):
+    """The exact request body sent to OpenRouter.
+
+    Two defect classes are guarded here. Sampling parameters must be sent only when the
+    configuration asks for them — `anthropic/claude-sonnet-5` and `openai/gpt-5.6-luna`
+    accept neither `temperature` nor `top_p`, and the client used to inject
+    `temperature=0.7` whenever the config omitted it, so opting out was impossible. And
+    the mandatory fields must all still be present: while moving `temperature` out of the
+    payload literal, `messages` was briefly dropped with it, which would have made every
+    request invalid.
+    """
+
+    def _capture_payload(self, params):
+        from model_api_integration import OpenRouterClient
+
+        client = OpenRouterClient.__new__(OpenRouterClient)
+        # "example-" prefix: matches the secret-scan hook's placeholder convention,
+        # so a dummy in a test file does not read as a leaked credential.
+        client.api_key = "example-key-used-only-in-this-test"
+        client.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        client.site_url = None
+        client.app_name = None
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+
+        with patch("model_api_integration.requests.post", return_value=response) as post:
+            OpenRouterClient.generate(client, "PROMPT", params)
+        return post.call_args.kwargs["json"]
+
+    def test_mandatory_fields_present(self):
+        payload = self._capture_payload({"model": "x/y", "max_tokens": 16000})
+        self.assertEqual(payload["model"], "x/y")
+        self.assertEqual(payload["max_tokens"], 16000)
+        self.assertEqual(payload["messages"], [{"role": "user", "content": "PROMPT"}],
+                         "messages is mandatory — without it every request is invalid")
+
+    def test_sampling_params_omitted_when_config_omits_them(self):
+        payload = self._capture_payload(
+            {"model": "anthropic/claude-sonnet-5", "max_tokens": 16000})
+        self.assertNotIn("temperature", payload,
+                         "models that reject temperature must not receive it")
+        self.assertNotIn("top_p", payload)
+
+    def test_sampling_params_passed_through_when_supplied(self):
+        payload = self._capture_payload(
+            {"model": "x-ai/grok-4.3", "max_tokens": 16000,
+             "temperature": 0.7, "top_p": 0.95})
+        self.assertEqual(payload["temperature"], 0.7)
+        self.assertEqual(payload["top_p"], 0.95)
+
+
+class TestConfiguredPortfolio(unittest.TestCase):
+    """The shipped configuration must match the contract the code reads."""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import io
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with io.open(os.path.join(root, "openrouter_config.json"), encoding="utf-8") as f:
+            cls.config = json.load(f)
+        cls.models = cls.config["models"]["api_models"]
+
+    def test_fourteen_models_one_per_house(self):
+        self.assertEqual(len(self.models), 14)
+        houses = {m["parameters"]["model"].split("/")[0] for m in self.models}
+        self.assertEqual(len(houses), 14, f"expected one model per house, got {sorted(houses)}")
+
+    def test_required_fields_present(self):
+        # strategic_order is required by validate_expanded_config.py; cost_tier and
+        # features drive selection and display in ~140 places; ui_priority gates the
+        # Web UI's curated portfolio (app.py:_filter_strategic_models).
+        for m in self.models:
+            for field in ("id", "name", "provider", "requires", "parameters",
+                          "features", "cost_tier", "ui_priority", "strategic_order"):
+                self.assertIn(field, m, f"{m.get('id')} is missing {field}")
+            self.assertIn(m["cost_tier"], ("budget", "standard", "premium", "premium_plus"))
+
+    def test_strategic_subset_is_not_empty(self):
+        strategic = [m for m in self.models if m.get("ui_priority") == "strategic"]
+        self.assertTrue(strategic, "an empty strategic subset empties the Web UI portfolio")
+
+    def test_max_tokens_raised(self):
+        # The old configuration capped output at 2048-4096 against models allowing
+        # 16k-943k, and evaluation_scoring.py penalises truncated answers.
+        for m in self.models:
+            self.assertGreaterEqual(m["parameters"]["max_tokens"], 16000, m["id"])
+
+    def test_models_rejecting_sampling_params_do_not_declare_them(self):
+        rejecting = {"anthropic/claude-sonnet-5", "openai/gpt-5.6-luna"}
+        for m in self.models:
+            if m["parameters"]["model"] in rejecting:
+                self.assertNotIn("temperature", m["parameters"], m["id"])
+                self.assertNotIn("top_p", m["parameters"], m["id"])
+
+    def test_ollama_models_are_disabled(self):
+        # main.py loads ollama_models into the SAME selection pool as api_models, so an
+        # enabled entry is selectable and would fail against a runtime that is not there.
+        for m in self.config["models"].get("ollama_models", []):
+            self.assertTrue(m.get("disabled"), f"{m.get('id')} must be disabled")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

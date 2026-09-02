@@ -583,12 +583,18 @@ class OpenRouterClient(ModelAPIClient):
         """
         params = parameters or {}
         
-        # Set default parameters if not provided
+        # `max_tokens` is universally supported, so a default is safe.
+        #
+        # `temperature` is NOT. Several current models — anthropic/claude-sonnet-5 and
+        # openai/gpt-5.6-luna among the configured portfolio — do not accept it at all.
+        # This used to inject temperature=0.7 whenever the config omitted it, which meant
+        # omitting it in the config had no effect whatsoever: the caller could not opt out
+        # of sending a parameter the model rejects. Sampling parameters are now sent only
+        # when the configuration actually asks for them (see the loop below, which already
+        # treated top_p and the penalties this way).
         if "max_tokens" not in params:
             params["max_tokens"] = 1024
-        if "temperature" not in params:
-            params["temperature"] = 0.7
-        
+
         # Prepare the API request headers
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -603,14 +609,20 @@ class OpenRouterClient(ModelAPIClient):
         
         # Format the request payload (OpenAI-compatible format)
         payload = {
-            "model": params.get("model", "anthropic/claude-3-sonnet"),
+            # No default model id. The previous default, "anthropic/claude-3-sonnet", has
+            # been retired from OpenRouter, so a caller that forgot to pass one got a 404
+            # from a line that looked like a safe fallback. Missing configuration should
+            # say so.
+            "model": params["model"],
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": params["max_tokens"],
-            "temperature": params["temperature"]
         }
-        
-        # Include other parameters if provided
-        for key in ["top_p", "presence_penalty", "frequency_penalty", "stop"]:
+
+        # `temperature` joins the conditional group: passed through when the configuration
+        # supplies it, omitted otherwise. Leaving it in the payload literal would both
+        # reintroduce the unconditional send that anthropic/claude-sonnet-5 and
+        # openai/gpt-5.6-luna reject, and raise KeyError now that no default is injected.
+        for key in ["temperature", "top_p", "presence_penalty", "frequency_penalty", "stop"]:
             if key in params:
                 payload[key] = params[key]
         
@@ -687,18 +699,14 @@ class OpenRouterClient(ModelAPIClient):
         try:
             models = self.get_available_models()
             return [model.get("id", "") for model in models if model.get("id")]
-        except Exception:
-            # Return a fallback list of popular models if API call fails
-            return [
-                "anthropic/claude-3-sonnet",
-                "anthropic/claude-3-opus", 
-                "openai/gpt-4-turbo",
-                "openai/gpt-4",
-                "openai/gpt-3.5-turbo",
-                "google/gemini-pro",
-                "meta-llama/llama-2-70b-chat",
-                "mistralai/mixtral-8x7b-instruct"
-            ]
+        except Exception as exc:
+            # No hardcoded fallback list. It named anthropic/claude-3-sonnet,
+            # anthropic/claude-3-opus, google/gemini-pro and meta-llama/llama-2-70b-chat,
+            # all of which have been retired from OpenRouter — so the "safe" path
+            # returned models that cannot be called. An empty list makes the failed
+            # lookup visible instead of substituting fiction for it.
+            self.logger.error("Could not list OpenRouter models: %s", exc)
+            return []
     
     def get_models_by_provider(self, provider: str) -> List[Dict[str, Any]]:
         """Get models filtered by provider.

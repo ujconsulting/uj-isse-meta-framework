@@ -273,197 +273,14 @@ class ISEEWebDemo:
                     "willison_tier": model.get('willison_tier')
                 })
             
-            # Add top performers to reach 20 models minimum  
-            if len(models) < 20:
-                # Top 20 performers based on OpenRouter rankings (updated for current performance)
-                additional_models = [
-                    {
-                        "id": "gpt-4o-mini",
-                        "name": "GPT-4o Mini",
-                        "provider": "OpenAI",
-                        "model_param": "openai/gpt-4o-mini",
-                        "cost_tier": "budget",
-                        "features": ["reasoning", "fast", "cost_effective"],
-                        "description": "OpenAI's cost-effective flagship model"
-                    },
-                    {
-                        "id": "gemini-2-0-flash",
-                        "name": "Gemini 2.0 Flash",
-                        "provider": "Google",
-                        "model_param": "google/gemini-2.0-flash",
-                        "cost_tier": "balanced",
-                        "features": ["fast", "multimodal", "reasoning"],
-                        "description": "Google's latest fast multimodal model"
-                    },
-                    {
-                        "id": "claude-3-7-sonnet",
-                        "name": "Claude 3.7 Sonnet",
-                        "provider": "Anthropic",
-                        "model_param": "anthropic/claude-3.7-sonnet",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "analysis", "writing"],
-                        "description": "Anthropic's enhanced reasoning model"
-                    },
-                    {
-                        "id": "gemini-2-5-pro-preview",
-                        "name": "Gemini 2.5 Pro Preview",
-                        "provider": "Google",
-                        "model_param": "google/gemini-2.5-pro-preview",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "multimodal", "large_context"],
-                        "description": "Google's next-generation flagship model"
-                    },
-                    {
-                        "id": "claude-sonnet-4",
-                        "name": "Claude Sonnet 4",
-                        "provider": "Anthropic",
-                        "model_param": "anthropic/claude-sonnet-4",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "analysis", "coding"],
-                        "description": "Anthropic's latest generation model"
-                    },
-                    {
-                        "id": "deepseek-v3-free",
-                        "name": "DeepSeek V3 Free",
-                        "provider": "DeepSeek",
-                        "model_param": "deepseek/deepseek-v3-0324-free",
-                        "cost_tier": "free",
-                        "features": ["reasoning", "coding", "free"],
-                        "description": "DeepSeek's powerful free reasoning model"
-                    },
-                    {
-                        "id": "gemini-2-5-flash-preview",
-                        "name": "Gemini 2.5 Flash Preview",
-                        "provider": "Google",
-                        "model_param": "google/gemini-2.5-flash-preview-04-17",
-                        "cost_tier": "balanced",
-                        "features": ["fast", "reasoning", "multimodal"],
-                        "description": "Google's enhanced flash model preview"
-                    },
-                    {
-                        "id": "deepseek-v3",
-                        "name": "DeepSeek V3",
-                        "provider": "DeepSeek",
-                        "model_param": "deepseek/deepseek-v3-0324",
-                        "cost_tier": "budget",
-                        "features": ["reasoning", "coding", "cost_effective"],
-                        "description": "DeepSeek's latest reasoning model"
-                    },
-                    {
-                        "id": "gpt-4-1",
-                        "name": "GPT-4.1",
-                        "provider": "OpenAI",
-                        "model_param": "openai/gpt-4.1",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "analysis", "latest"],
-                        "description": "OpenAI's enhanced GPT-4 model"
-                    },
-                    {
-                        "id": "deepseek-r1-free",
-                        "name": "DeepSeek R1 Free",
-                        "provider": "DeepSeek",
-                        "model_param": "deepseek/r1-free",
-                        "cost_tier": "free",
-                        "features": ["reasoning", "thinking", "free"],
-                        "description": "DeepSeek's reasoning model with thinking process"
-                    },
-                    {
-                        "id": "llama-3-3-70b",
-                        "name": "Llama 3.3 70B",
-                        "provider": "Meta",
-                        "model_param": "meta-llama/llama-3.3-70b-instruct",
-                        "cost_tier": "balanced",
-                        "features": ["reasoning", "open_source", "large_context"],
-                        "description": "Meta's latest open-source flagship model"
-                    },
-                    {
-                        "id": "mistral-nemo",
-                        "name": "Mistral Nemo",
-                        "provider": "Mistral",
-                        "model_param": "mistralai/mistral-nemo",
-                        "cost_tier": "budget",
-                        "features": ["efficient", "multilingual", "coding"],
-                        "description": "Mistral's efficient latest model"
-                    },
-                    {
-                        "id": "gemini-2-0-flash-lite",
-                        "name": "Gemini 2.0 Flash Lite",
-                        "provider": "Google",
-                        "model_param": "google/gemini-2.0-flash-lite",
-                        "cost_tier": "budget",
-                        "features": ["fast", "cost_effective", "multimodal"],
-                        "description": "Google's lightweight flash model"
-                    },
-                    {
-                        "id": "gemini-1-5-flash-8b",
-                        "name": "Gemini 1.5 Flash 8B",
-                        "provider": "Google",
-                        "model_param": "google/gemini-1.5-flash-8b",
-                        "cost_tier": "budget",
-                        "features": ["fast", "efficient", "cost_effective"],
-                        "description": "Google's efficient 8B parameter model"
-                    },
-                    {
-                        "id": "gpt-4-1-mini",
-                        "name": "GPT-4.1 Mini",
-                        "provider": "OpenAI",
-                        "model_param": "openai/gpt-4.1-mini",
-                        "cost_tier": "budget",
-                        "features": ["reasoning", "cost_effective", "latest"],
-                        "description": "OpenAI's cost-effective GPT-4.1 variant"
-                    },
-                    {
-                        "id": "gemini-2-5-flash-thinking",
-                        "name": "Gemini 2.5 Flash Thinking",
-                        "provider": "Google",
-                        "model_param": "google/gemini-2.5-flash-preview-05-20-thinking",
-                        "cost_tier": "balanced",
-                        "features": ["reasoning", "thinking", "analysis"],
-                        "description": "Google's thinking-enabled flash model"
-                    },
-                    {
-                        "id": "claude-3-5-sonnet",
-                        "name": "Claude 3.5 Sonnet",
-                        "provider": "Anthropic",
-                        "model_param": "anthropic/claude-3.5-sonnet",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "coding", "analysis"],
-                        "description": "Anthropic's proven capable model"
-                    },
-                    {
-                        "id": "gemini-1-5-flash",
-                        "name": "Gemini 1.5 Flash",
-                        "provider": "Google",
-                        "model_param": "google/gemini-1.5-flash",
-                        "cost_tier": "balanced",
-                        "features": ["fast", "reliable", "multimodal"],
-                        "description": "Google's reliable flash model"
-                    },
-                    {
-                        "id": "claude-3-7-sonnet-thinking",
-                        "name": "Claude 3.7 Sonnet Thinking",
-                        "provider": "Anthropic",
-                        "model_param": "anthropic/claude-3.7-sonnet-thinking",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "thinking", "analysis"],
-                        "description": "Anthropic's thinking-enabled reasoning model"
-                    },
-                    {
-                        "id": "gpt-4o",
-                        "name": "GPT-4o",
-                        "provider": "OpenAI",
-                        "model_param": "openai/gpt-4o",
-                        "cost_tier": "premium",
-                        "features": ["reasoning", "multimodal", "analysis"],
-                        "description": "OpenAI's multimodal flagship model"
-                    }
-                ]
-                
-                # Add models that aren't already in the config
-                existing_ids = {m["id"] for m in models}
-                for model in additional_models:
-                    if model["id"] not in existing_ids:
-                        models.append(model)
+            # ⛔ No padding with hardcoded model ids.
+            #
+            # This used to top the list up to 20 entries from a literal list of "top
+            # performers" (google/gemini-2.0-flash, anthropic/claude-3.7-sonnet and
+            # others). Those ids age independently of openrouter_config.json, so the UI
+            # kept offering models the framework could no longer call — and a deliberate
+            # 14-model portfolio silently became a 20-model one, six of them stale.
+            # The configuration is the single source of truth for what is on offer.
             
             # Add dynamic Ollama models if available
             try:
@@ -498,35 +315,18 @@ class ISEEWebDemo:
             
         except Exception as e:
             print(f"Error loading models: {e}")
-            # Fallback to top 20 performers model list with ranking metadata
-            fallback_models = [
-                {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "provider": "OpenAI", "model_param": "openai/gpt-4o-mini", "cost_tier": "budget", "features": ["reasoning", "fast"], "description": "OpenAI's cost-effective flagship"},
-                {"id": "gemini-2-0-flash", "name": "Gemini 2.0 Flash", "provider": "Google", "model_param": "google/gemini-2.0-flash", "cost_tier": "balanced", "features": ["fast", "multimodal"], "description": "Google's latest flash model"},
-                {"id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet", "provider": "Anthropic", "model_param": "anthropic/claude-3.7-sonnet", "cost_tier": "premium", "features": ["reasoning", "analysis"], "description": "Anthropic's enhanced model"},
-                {"id": "gemini-2-5-pro-preview", "name": "Gemini 2.5 Pro Preview", "provider": "Google", "model_param": "google/gemini-2.5-pro-preview", "cost_tier": "premium", "features": ["reasoning", "large_context"], "description": "Google's next-gen flagship"},
-                {"id": "claude-sonnet-4", "name": "Claude Sonnet 4", "provider": "Anthropic", "model_param": "anthropic/claude-sonnet-4", "cost_tier": "premium", "features": ["reasoning", "coding"], "description": "Anthropic's latest generation"},
-                {"id": "deepseek-v3-free", "name": "DeepSeek V3 Free", "provider": "DeepSeek", "model_param": "deepseek/deepseek-v3-0324-free", "cost_tier": "free", "features": ["reasoning", "free"], "description": "Free powerful reasoning model"},
-                {"id": "deepseek-v3", "name": "DeepSeek V3", "provider": "DeepSeek", "model_param": "deepseek/deepseek-v3-0324", "cost_tier": "budget", "features": ["reasoning", "coding"], "description": "DeepSeek's latest model"},
-                {"id": "gpt-4-1", "name": "GPT-4.1", "provider": "OpenAI", "model_param": "openai/gpt-4.1", "cost_tier": "premium", "features": ["reasoning", "latest"], "description": "OpenAI's enhanced GPT-4"},
-                {"id": "deepseek-r1-free", "name": "DeepSeek R1 Free", "provider": "DeepSeek", "model_param": "deepseek/r1-free", "cost_tier": "free", "features": ["reasoning", "thinking"], "description": "Free reasoning with thinking"},
-                {"id": "llama-3-3-70b", "name": "Llama 3.3 70B", "provider": "Meta", "model_param": "meta-llama/llama-3.3-70b-instruct", "cost_tier": "balanced", "features": ["reasoning", "open_source"], "description": "Meta's open-source flagship"},
-                {"id": "mistral-nemo", "name": "Mistral Nemo", "provider": "Mistral", "model_param": "mistralai/mistral-nemo", "cost_tier": "budget", "features": ["efficient", "multilingual"], "description": "Mistral's efficient model"},
-                {"id": "gemini-2-0-flash-lite", "name": "Gemini 2.0 Flash Lite", "provider": "Google", "model_param": "google/gemini-2.0-flash-lite", "cost_tier": "budget", "features": ["fast", "cost_effective"], "description": "Google's lightweight model"},
-                {"id": "gemini-1-5-flash-8b", "name": "Gemini 1.5 Flash 8B", "provider": "Google", "model_param": "google/gemini-1.5-flash-8b", "cost_tier": "budget", "features": ["efficient", "fast"], "description": "Google's 8B parameter model"},
-                {"id": "gpt-4-1-mini", "name": "GPT-4.1 Mini", "provider": "OpenAI", "model_param": "openai/gpt-4.1-mini", "cost_tier": "budget", "features": ["reasoning", "cost_effective"], "description": "OpenAI's cost-effective variant"},
-                {"id": "claude-3-5-sonnet", "name": "Claude 3.5 Sonnet", "provider": "Anthropic", "model_param": "anthropic/claude-3.5-sonnet", "cost_tier": "premium", "features": ["reasoning", "coding"], "description": "Anthropic's proven model"},
-                {"id": "gemini-1-5-flash", "name": "Gemini 1.5 Flash", "provider": "Google", "model_param": "google/gemini-1.5-flash", "cost_tier": "balanced", "features": ["fast", "reliable"], "description": "Google's reliable flash model"},
-                {"id": "gpt-4o", "name": "GPT-4o", "provider": "OpenAI", "model_param": "openai/gpt-4o", "cost_tier": "premium", "features": ["reasoning", "multimodal"], "description": "OpenAI's multimodal flagship"},
-                {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "provider": "OpenAI", "model_param": "openai/gpt-4-turbo", "cost_tier": "premium", "features": ["reasoning", "large_context"], "description": "OpenAI's turbo model"},
-                {"id": "claude-3-haiku", "name": "Claude 3 Haiku", "provider": "Anthropic", "model_param": "anthropic/claude-3-haiku", "cost_tier": "budget", "features": ["fast", "cost_effective"], "description": "Anthropic's fast model"}
-            ]
-            
-            # Add fallback ranking metadata 
-            for i, model in enumerate(fallback_models):
-                model["ranking_position"] = i + 1  # Fallback models get estimated rankings
-                model["is_top_performer"] = i < 10  # Top 10 get highlighting
-            
-            return fallback_models
+            # ⛔ No stale hardcoded fallback list here either.
+            #
+            # This returned twenty obsolete model ids whenever the configuration failed
+            # to load, so a broken openrouter_config.json presented as a working model
+            # picker whose every choice fails at call time. An empty list makes the real
+            # problem visible where it happens.
+            self.logger.error(
+                "Could not load models from openrouter_config.json (%s). Returning an "
+                "empty model list: the configuration is the only source of truth for "
+                "what this framework can call.", e,
+            )
+            return []
     
     def _load_actual_domains(self):
         """Load domains from actual ISEE domain system"""
