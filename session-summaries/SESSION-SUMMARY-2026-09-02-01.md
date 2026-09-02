@@ -189,13 +189,99 @@ committed on its own. Not a merge — a re-implementation with upstream as the r
 | 2 | Provider consolidation | **Inverted** | Upstream consolidated on Globant. Our version is the mirror image: **consolidate on OpenRouter**, remove the Globant paths and the `hybrid` mode. Same simplification, opposite direction. |
 | 3 | Extract `isee_engine.py` | **Yes** | Core logic out of `main.py` into an importable module. Provider-independent. Prerequisite for #4. |
 | 4 | Eliminate the subprocess pattern | **Yes — biggest win** | `app.py` imports the engine directly instead of spawning `main.py` and parsing its stdout. Removes the parameter-translation layer that is check point 1 in `AGENTS.md` and the subject of `NEXT_SESSION_WEB_UI_CLI_DISCREPANCY_FIX.md`. |
-| 5 | UI dead-code removal | **Mostly** | Upstream stripped 347 lines of provider-switching UI. Ours differs (we keep OpenRouter, they kept Globant), so the *list* transfers, the diff does not. |
+| 5 | UI: cleanup **and redesign** | **List only** | Upstream stripped 347 lines of provider-switching UI. Ours differs (we keep OpenRouter, they kept Globant), so the *list* of what is dead transfers, the diff does not. **Scope is explicitly larger than upstream's** — see below. |
 | 6 | Execution Matrix | **Unfinished upstream** | Phase 6 is mid-work ("response loading TBD"). Either finish it ourselves or skip it. Note it *grew* `isee-ui.html` by 24%. |
 | — | Model mislabels | **Do our own** | Upstream fixed three (GPT-4 Turbo → GPT-4.1; "DeepSeek Chat V3" that was actually R1; a Claude path separator). We fix ours against the live OpenRouter catalogue instead. |
 | — | Flat output layout | **Decide explicitly** | `data/output/run_TIMESTAMP` is simpler, but the current nested layout is a contract with ~7 readers (check point 5 in `AGENTS.md`). Only worth it if all readers move together. |
 
 **Sequence if Route A is chosen**: 1 → 3 → 4 → 2 → 5. Item 1 is independent and proves the
 workflow; 3 must precede 4; 2 is cleanest once the subprocess seam is gone.
+
+#### Item 5 in full: the UI is a redesign, not a tidy-up
+
+Explicit scope decision (operator, 2026-09-02): the interface should be brought up to
+current UI standards and be **something a person actually enjoys looking at** — not merely
+have its dead code removed. Upstream's Phase 5 is a subset of this, not the goal.
+
+Two things have to be said honestly about the starting point:
+
+- **The real obstacle is structural, not stylistic.** `isee-ui.html` is a **4,558-line
+  single file** (5,670 on upstream's branch, where Phase 6 made it *bigger*). Markup,
+  styling and behaviour live together. Meaningful design work on a file that size means
+  splitting it first; otherwise every visual change risks the execution monitoring, and
+  the file grows again. Item 5 therefore depends on item 4 — once the backend seam is
+  clean, the frontend can be restructured without also chasing subprocess output parsing.
+- **`CLAUDE.md` claims the design is already deliberate** ("glass morphism", "amber/slate
+  enterprise scheme", "SF Pro Display", "pixel-perfect alignment"). Given how much else in
+  that file this session caught being wrong, treat it as a hypothesis. **Look at the
+  running interface before designing anything** — which is another reason the validation
+  run (priority 4) comes first.
+
+What the interface actually has to carry, and what should drive the design rather than any
+style trend:
+
+1. **A live 66-call execution view** — the current one has known bugs (Phase 1: state that
+   never resets, 8 fallback name-matching strategies, a race in call tracking). It is the
+   screen a user watches for minutes at a time; it deserves the most attention.
+2. **Cost before commitment** — the pre-run estimate is the product's own promise
+   ("Economic Intelligence"). Note defect 3 above: it currently would lie.
+3. **66 results without drowning the reader** — the Cognitive Diversity Explorer exists
+   for this and is a second, separately styled surface. A redesign should decide whether
+   these are one interface or two; today they are two pretending to be one.
+4. **Long-running work** — minutes, not seconds. Progress, partial results, and failure of
+   individual calls need to be legible without a page reload.
+
+When this is picked up, use the `frontend-design` skill for the aesthetic direction rather
+than defaulting to whatever a component library ships with — the point of the exercise is
+that it should not look templated.
+
+### Later step (either route) — EU-resident hosting for GDPR / EU AI Act
+
+Not for the next session, but it shapes how the provider layer should be built, so it is
+recorded here rather than discovered later.
+
+**The concern**: OpenRouter is a US gateway. That is fine for abstract research questions.
+It is not the channel for prompts carrying personal data or client-confidential material —
+and ISEE writes everything it sends into `queries_detailed_*.csv` and the raw response
+files, so whatever goes in is also persisted.
+
+**The observation that matters**: this is exactly what Globant was selling. Its model IDs
+are literally `awsbedrock/anthropic.claude-3-5-haiku`, `azure/gpt-4.1`,
+`vertex_ai/gemini-2.5-pro`, `azure_ai_foundry/grok-3-mini` — a multi-hyperscaler gateway.
+Upstream's instinct was the same one; the difference is reseller versus own contract.
+**The routing mechanism therefore already exists in this codebase.** What changes is the
+account, the DPA and the region — not the architecture.
+
+**AWS and Azure are not interchangeable**, and neither alone covers the current portfolio:
+
+| | EU regions | Houses available |
+| --- | --- | --- |
+| AWS Bedrock | Frankfurt (`eu-central-1`), Ireland (`eu-west-1`) | Anthropic, Meta, Mistral, Amazon, Cohere, DeepSeek — **no OpenAI** |
+| Azure AI Foundry | Sweden Central, West Europe, Germany West Central | OpenAI, plus Grok, Mistral, Llama — **no Bedrock catalogue** |
+
+**Design consequence — do not replace OpenRouter, tier it.** The provider layer should
+route by *data class*, not globally:
+
+1. **Open** — abstract research questions → OpenRouter, full 14-house diversity, cheapest.
+2. **Confidential** — client or personal data → EU-resident Bedrock/Azure under our own
+   contract, smaller portfolio accepted as the price of residency.
+3. **Sensitive** — nothing leaves the machine → local inference. Note that
+   `openrouter_config.json` already carries an unused `ollama_models` block (4 entries);
+   the seam exists. The claudex-loop fallback reviewer uses the same principle.
+
+Cognitive diversity is reduced in tiers 2 and 3. That is a real trade-off, not a
+formality: fewer houses means less of exactly what ISEE exists to produce. It should be a
+conscious choice per query, which is why it belongs in the provider layer rather than in a
+global switch.
+
+**Prerequisite before any of this**: decide what data actually enters prompts. If ISEE
+only ever receives abstract questions, tier 1 suffices and this whole step is optional.
+
+⚖️ **Not legal advice.** Which obligations apply — controller/processor roles, whether a
+DPA is required, the deployer-vs-provider classification under the EU AI Act, and any
+documentation duties — is a question for whoever handles that, not something to settle
+from the code side. What is recorded here is only the technical shape that keeps those
+options open.
 
 ### Route B — redesign on current technology
 
