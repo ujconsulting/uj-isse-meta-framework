@@ -79,6 +79,50 @@ class ReportingSystem:
         else:
             raise ValueError(f"Unsupported report format: {self.report_format}")
     
+    @staticmethod
+    def describe_combination(
+        combo_id: str,
+        combinations: List[Dict[str, Any]],
+        model_configs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, str]:
+        """Which model and which cognitive framework produced this combination.
+
+        Looked up in the run's own combination records, never derived from the id.
+
+        Both report writers used to take the id apart on "_" and assume the model
+        name occupied its first two segments. Every model in the configured
+        portfolio has more than two — `or_claude_sonnet_5` has four — so the
+        summary of a real run read:
+
+            1. **or_claude with Sonnet Instruction** (Score: 0.414)
+
+        `or_claude` is not a configured model and "Sonnet" is not a cognitive
+        framework; it is a fragment of the model's own name. The deliverable's
+        central claim — which way of thinking, on which model, produced the best
+        contribution — was therefore wrong in every run ever produced.
+
+        Returns display names. A combination that is not on record is reported as
+        unknown rather than guessed at: a plausible wrong attribution is worse
+        than an admitted gap.
+        """
+        by_id = {c.get("id"): c for c in (combinations or []) if c.get("id")}
+        combo = by_id.get(combo_id)
+
+        if combo is None:
+            return f"unknown model ({combo_id})", "unknown framework"
+
+        model_id = combo.get("model") or "unknown"
+        model_name = model_id
+        if model_configs and model_id in model_configs:
+            model_name = model_configs[model_id].get("name", model_id)
+
+        template_id = combo.get("template") or ""
+        framework_name = (
+            template_id[len("ins_"):] if template_id.startswith("ins_") else template_id
+        ).replace("_", " ").title() or "unknown framework"
+
+        return model_name, framework_name
+
     def _generate_run_summary_markdown(
         self,
         query: str,
@@ -223,23 +267,10 @@ class ReportingSystem:
             # Take top 3 (or fewer if available)
             top_n = min(3, len(scored_combos))
             for i, (combo_id, score) in enumerate(scored_combos[:top_n], 1):
-                # Get model and instruction information
-                combo_parts = combo_id.split("_")
-                model_id = combo_parts[0]
-                if len(combo_parts) > 1:
-                    model_id = f"{combo_parts[0]}_{combo_parts[1]}"
-                
-                instruction_id = combo_parts[2] if len(combo_parts) > 2 else ""
-                
-                # Get model name from config if available
-                model_name = model_id
-                if model_id in model_configs:
-                    model_name = model_configs[model_id].get("name", model_id)
-                
-                # Get instruction name based on the id template
-                instruction_name = instruction_id.replace("ins_", "").capitalize()
-                
-                report.append(f"{i}. **{model_name} with {instruction_name} Instruction** (Score: {score:.3f})")
+                model_name, framework_name = self.describe_combination(
+                    combo_id, combinations, model_configs)
+
+                report.append(f"{i}. **{model_name} with {framework_name} Instruction** (Score: {score:.3f})")
         
         # Join with line breaks
         return "\n".join(report)
@@ -359,27 +390,14 @@ class ReportingSystem:
             # Take top 3 (or fewer if available)
             top_n = min(3, len(scored_combos))
             for i, (combo_id, score) in enumerate(scored_combos[:top_n], 1):
-                # Get model and instruction information
-                combo_parts = combo_id.split("_")
-                model_id = combo_parts[0]
-                if len(combo_parts) > 1:
-                    model_id = f"{combo_parts[0]}_{combo_parts[1]}"
-                
-                instruction_id = combo_parts[2] if len(combo_parts) > 2 else ""
-                
-                # Get model name from config if available
-                model_name = model_id
-                if model_id in model_configs:
-                    model_name = model_configs[model_id].get("name", model_id)
-                
-                # Get instruction name based on the id template
-                instruction_name = instruction_id.replace("ins_", "").capitalize()
-                
+                model_name, framework_name = self.describe_combination(
+                    combo_id, combinations, model_configs)
+
                 top_responses.append({
                     "rank": i,
                     "combination_id": combo_id,
                     "model": model_name,
-                    "instruction": instruction_name,
+                    "instruction": framework_name,
                     "score": score
                 })
         
