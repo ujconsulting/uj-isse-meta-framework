@@ -207,10 +207,52 @@ def format_report(summary: Dict[str, Any], credit: Optional[Tuple[float, float, 
     return "\n".join(lines)
 
 
+def load_run_summary(target: str) -> dict:
+    """Get a cost summary for a run, whatever shape it was written in.
+
+    A run started with `--output-format json` leaves `isee_result.json`, which
+    still carries the billed tokens per response and can be re-summarised. A
+    markdown run — which is what the web UI always starts — leaves no such file,
+    so the run writes `cost_report.json` at the end instead. Reading only the
+    first meant the reporter could not open the runs a person actually makes.
+    """
+    if not os.path.isdir(target):
+        with io.open(target, encoding="utf-8") as f:
+            payload = json.load(f)
+        return summarise(payload.get("results", payload))
+
+    results_path = os.path.join(target, "isee_result.json")
+    if os.path.exists(results_path):
+        with io.open(results_path, encoding="utf-8") as f:
+            payload = json.load(f)
+        return summarise(payload.get("results", payload))
+
+    summary_path = os.path.join(target, "cost_report.json")
+    if os.path.exists(summary_path):
+        with io.open(summary_path, encoding="utf-8") as f:
+            return json.load(f)
+
+    raise SystemExit(
+        f"{target} holds neither isee_result.json nor cost_report.json.\n"
+        "Runs from before 03.09.2026 recorded neither, so their cost cannot be "
+        "recomputed — it was only ever printed."
+    )
+
+
 if __name__ == "__main__":
     import sys
 
     sys.stdout.reconfigure(encoding="utf-8")
+
+    # The balance needs the API key, and nothing loads .env when this is run on
+    # its own — so the balance was silently omitted from every standalone call.
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    except ImportError:
+        pass
+
     if len(sys.argv) < 2:
         print("usage: python run_cost_report.py <run_directory|isee_result.json>")
         credit = remaining_credit()
@@ -218,12 +260,8 @@ if __name__ == "__main__":
             total, used, left = credit
             print(f"\nOpenRouter balance: ${left:,.2f} remaining "
                   f"(${used:,.2f} used of ${total:,.2f})")
+        else:
+            print("\n(no balance: OPENROUTER_API_KEY is not set)")
         raise SystemExit(0)
 
-    target = sys.argv[1]
-    path = (os.path.join(target, "isee_result.json")
-            if os.path.isdir(target) else target)
-    with io.open(path, encoding="utf-8") as f:
-        payload = json.load(f)
-    results = payload.get("results", payload)
-    print(format_report(summarise(results), remaining_credit()))
+    print(format_report(load_run_summary(sys.argv[1]), remaining_credit()))

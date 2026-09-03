@@ -31,6 +31,26 @@ try:
 except ImportError:
     GOOGLE_AI_AVAILABLE = False
 
+#: Longest silence tolerated on an open connection, in seconds.
+#:
+#: This is what `requests` means by `timeout=`: the gap between bytes, not the
+#: length of the call. It catches a dead connection and nothing else.
+SOCKET_TIMEOUT_SECONDS = 120
+
+#: Longest a single model call may take from first byte to last, in seconds.
+#:
+#: Measured against OpenRouter on 03.09.2026: a 77.8-second request never saw a
+#: gap larger than 3.0 seconds between bytes, so a 10-second read timeout did not
+#: fire once — the gateway sends keep-alive padding while the model is still
+#: generating. The socket timeout therefore cannot bound a call's duration at all
+#: on this provider, and a single slow model held a whole run for 278 seconds
+#: under `timeout=120`, on its first and only attempt.
+#:
+#: 300s is generous for a reasoning model and still bounds the damage: an
+#: eleven-call run cannot be held for more than five minutes by one straggler.
+CALL_DEADLINE_SECONDS = 300
+
+
 class APIIntegrationError(Exception):
     """Base exception for API integration errors.
 
@@ -238,11 +258,12 @@ class AnthropicClient(ModelAPIClient):
         
         # Send the request
         try:
-            response = requests.post(self.base_url, headers=headers, json=payload)
-            
+            response = requests.post(self.base_url, headers=headers, json=payload,
+                                     timeout=SOCKET_TIMEOUT_SECONDS)
+
             if response.status_code != 200:
                 self._handle_error(response)
-            
+
             response_data = response.json()
             return response_data["content"][0]["text"]
         
@@ -312,11 +333,12 @@ class OpenAIClient(ModelAPIClient):
         
         # Send the request
         try:
-            response = requests.post(self.base_url, headers=headers, json=payload)
-            
+            response = requests.post(self.base_url, headers=headers, json=payload,
+                                     timeout=SOCKET_TIMEOUT_SECONDS)
+
             if response.status_code != 200:
                 self._handle_error(response)
-            
+
             response_data = response.json()
             return response_data["choices"][0]["message"]["content"]
         
@@ -571,9 +593,33 @@ class OpenRouterClient(ModelAPIClient):
             self.categorizer = None
             self._categorization_available = False
     
+    @staticmethod
+    def _read_within_deadline(response, deadline: float, model: Optional[str] = None) -> bytes:
+        """Read the whole response body, abandoning the call once it runs long.
+
+        Raised as a timeout rather than returning a partial body: half a JSON
+        document is not an answer, and a call that outlives its budget is a
+        failure that belongs in the run's failure list, not a silent truncation.
+
+        Marked non-retryable — a model that has already spent the full budget
+        will not do better on a second attempt, it will only spend it again.
+        """
+        chunks = []
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                chunks.append(chunk)
+            if time.monotonic() > deadline:
+                response.close()
+                raise APITimeoutError(
+                    f"Call exceeded its {CALL_DEADLINE_SECONDS}s deadline "
+                    f"(read {sum(len(c) for c in chunks)} bytes before giving up)",
+                    provider="openrouter", model=model, retryable=False,
+                )
+        return b"".join(chunks)
+
     def generate(self, prompt: str, parameters: Optional[Dict[str, Any]] = None) -> str:
         """Generate a response using OpenRouter.
-        
+
         Args:
             prompt: The input prompt to send to the model.
             parameters: Optional parameters like model, temperature, max_tokens, etc.
@@ -633,13 +679,20 @@ class OpenRouterClient(ModelAPIClient):
         
         # Send the request
         try:
-            response = requests.post(self.base_url, headers=headers, json=payload, timeout=120)
-            
+            # Streamed and read against a wall-clock deadline. The socket timeout
+            # alone cannot bound this call: OpenRouter keeps the connection warm
+            # while the model generates, so the gap between bytes stays small no
+            # matter how long the answer takes (see CALL_DEADLINE_SECONDS).
+            deadline = time.monotonic() + CALL_DEADLINE_SECONDS
+            response = requests.post(self.base_url, headers=headers, json=payload,
+                                     timeout=SOCKET_TIMEOUT_SECONDS, stream=True)
+
             if response.status_code != 200:
                 self._handle_error(response)
-            
-            response_data = response.json()
-            
+
+            body = self._read_within_deadline(response, deadline, params.get("model"))
+            response_data = json.loads(body)
+
             # Check for provider errors in the response
             if "error" in response_data:
                 error_info = response_data["error"]

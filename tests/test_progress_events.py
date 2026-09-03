@@ -372,3 +372,60 @@ class TestEventCoverage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestEventExtraction(unittest.TestCase):
+    """Getting events out of a shared text stream.
+
+    The engine prints progress from a thread pool, so `print()` calls interleave
+    and a marker often lands mid-line behind another thread's output. Requiring
+    the line to begin with the marker dropped a third of the events of a live run
+    on 03.09.2026 — 6 of 18 — with nothing logged.
+    """
+
+    def setUp(self):
+        self.demo = make_demo()
+
+    def test_a_clean_line_yields_its_event(self):
+        line = 'PROGRESS_JSON:{"type": "execution_start", "total_combinations": 11}'
+
+        events = self.demo.extract_progress_events(line)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["total_combinations"], 11)
+
+    def test_an_event_glued_behind_other_output_is_still_found(self):
+        line = ('Creating client for model or_claude_sonnet_5 using provider: openrouter'
+                'PROGRESS_JSON:{"type": "combination_start_parallel", "combination_id": "c1"}')
+
+        events = self.demo.extract_progress_events(line)
+
+        self.assertEqual([e["combination_id"] for e in events], ["c1"])
+
+    def test_two_events_on_one_line_are_both_found(self):
+        line = ('PROGRESS_JSON:{"type": "combination_complete_parallel", "combination_id": "c1"}'
+                'Making real API call to or_gemini_35_fl...'
+                'PROGRESS_JSON:{"type": "combination_start_parallel", "combination_id": "c2"}')
+
+        events = self.demo.extract_progress_events(line)
+
+        self.assertEqual([e["combination_id"] for e in events], ["c1", "c2"])
+
+    def test_trailing_output_after_an_event_is_ignored(self):
+        line = ('PROGRESS_JSON:{"type": "execution_start", "total_combinations": 3}'
+                ' Loaded 15 domains')
+
+        events = self.demo.extract_progress_events(line)
+
+        self.assertEqual(len(events), 1)
+
+    def test_a_line_without_a_marker_yields_nothing(self):
+        self.assertEqual(self.demo.extract_progress_events("Loaded 11 templates"), [])
+
+    def test_a_truncated_event_does_not_raise(self):
+        line = 'PROGRESS_JSON:{"type": "combination_start_paral'
+
+        self.assertEqual(self.demo.extract_progress_events(line), [])
+
+    def test_a_non_object_payload_is_not_treated_as_an_event(self):
+        self.assertEqual(self.demo.extract_progress_events('PROGRESS_JSON:"hello"'), [])

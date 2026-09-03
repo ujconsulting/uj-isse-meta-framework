@@ -2396,8 +2396,18 @@
 
         async function loadModels() {
             try {
-                // Always load strategic models for simplified UI
-                const response = await fetch('/api/models?strategic_only=true');
+                // Load every configured model, not just the curated eight.
+                //
+                // `ui_priority` marks eight of the fourteen as "strategic". While the
+                // tiles were display-only that was a sensible simplification. Since they
+                // became the run's model picker it is not: six houses — Mistral,
+                // Nemotron, MiniMax, Solar, Hunyuan, Muse — were unreachable, with
+                // nothing on the page to say they existed. For a tool whose whole point
+                // is covering different ways of thinking, that is a strange thing to
+                // hide. The tier is now a pre-selection instead of a filter: the same
+                // eight are ticked on arrival, so a run started without touching
+                // anything is exactly what it was before.
+                const response = await fetch('/api/models');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -2410,7 +2420,8 @@
                     provider: model.provider,
                     tier: model.willison_tier || 'T3',
                     efficiency: getEfficiencyStars(model.cost_tier, model.features),
-                    willison_rec: model.features && model.features.includes('willison_recommended')
+                    willison_rec: model.features && model.features.includes('willison_recommended'),
+                    strategic: model.ui_priority === 'strategic'
                 }));
                 
                 // Function to convert cost_tier and features to efficiency stars
@@ -2423,13 +2434,16 @@
                     return "★★★☆☆";
                 }
                 
-                // Show strategic models (no limit needed as API already filters)
-                const displayModels = uiModels;
-                
+                // Curated models first, the rest after — the grid reads as a
+                // recommendation followed by what else is available, rather than as one
+                // undifferentiated list of fourteen.
+                const displayModels = [...uiModels].sort(
+                    (a, b) => Number(b.strategic) - Number(a.strategic));
+
                 // Populate main model grid (always visible)
                 const modelGrid = document.getElementById('modelGrid');
                 modelGrid.innerHTML = '';
-                
+
                 displayModels.forEach(model => {
                     const indicator = document.createElement('div');
                     // These tiles serve two jobs at once: they are the run's progress
@@ -2437,11 +2451,21 @@
                     // they were — same chip shape as every other clickable control on the
                     // page — so a user could reasonably conclude the selection was broken
                     // rather than absent.
-                    indicator.className = 'model-indicator selectable selected';
+                    // `.selectable:not(.selected)` already renders the unticked state
+                    // (faded, dashed, greyscale), so the tier needs no class of its own.
+                    indicator.className = 'model-indicator selectable'
+                        + (model.strategic ? ' selected' : '');
                     indicator.setAttribute('data-model', model.id);
                     indicator.setAttribute('role', 'checkbox');
-                    indicator.setAttribute('aria-checked', 'true');
+                    indicator.setAttribute('aria-checked', model.strategic ? 'true' : 'false');
                     indicator.setAttribute('tabindex', '0');
+                    indicator.title = model.strategic
+                        ? (window.I18N && I18N.lang === 'de'
+                            ? 'Empfohlene Auswahl — vorausgewählt'
+                            : 'Recommended selection — preselected')
+                        : (window.I18N && I18N.lang === 'de'
+                            ? 'Zusätzlich verfügbar — zum Aufnehmen anklicken'
+                            : 'Also available — click to include');
                     indicator.textContent = model.name.replace(/\s+/g, ' ');
                     indicator.addEventListener('click', () => toggleSelection(indicator, 'model'));
                     indicator.addEventListener('keydown', e => {

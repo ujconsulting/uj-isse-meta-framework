@@ -1228,6 +1228,43 @@ class ISEEWebDemo:
     #: them regardless — see `new_progress_context`.
     DISPLAY_CALLS = 20
 
+    #: What the engine prefixes a progress event with on stdout.
+    PROGRESS_MARKER = "PROGRESS_JSON:"
+
+    def extract_progress_events(self, line: str) -> List[Dict[str, Any]]:
+        """Pull every progress event out of one line of engine output.
+
+        The engine prints these from a thread pool, and concurrent `print()` calls
+        interleave: a marker regularly lands mid-line, glued behind another
+        thread's output — "…using provider: openrouterPROGRESS_JSON:{…}". The
+        reader used to require the line to *begin* with the marker, so anything
+        that landed behind other text was dropped silently. Measured on
+        03.09.2026 during a live run: 6 of 18 events, a third of the run's
+        progress, lost that way.
+
+        Parsed with `raw_decode`, which stops at the end of the JSON value, so a
+        line carrying two events — or an event followed by more output — yields
+        all of them. The interleaving itself cannot be fixed on this side; it is
+        a property of shipping structured events down a shared text stream.
+        """
+        events: List[Dict[str, Any]] = []
+        decoder = json.JSONDecoder()
+        index = line.find(self.PROGRESS_MARKER)
+
+        while index != -1:
+            start = index + len(self.PROGRESS_MARKER)
+            try:
+                event, end = decoder.raw_decode(line, start)
+            except ValueError as e:
+                # A marker whose JSON is cut off — the line ended mid-event.
+                self.logger.warning(f"Unparsable progress event at offset {start}: {e}")
+                break
+            if isinstance(event, dict):
+                events.append(event)
+            index = line.find(self.PROGRESS_MARKER, max(end, start + 1))
+
+        return events
+
     @staticmethod
     def new_progress_context() -> Dict[str, Any]:
         """Per-run bookkeeping for the progress stream.
@@ -1471,18 +1508,10 @@ class ISEEWebDemo:
                             self.logger.debug(f"CLI output: {line}")
                             
                             # Check for JSON progress messages
-                            if line.startswith("PROGRESS_JSON:"):
-                                try:
-                                    json_str = line[14:]  # Remove "PROGRESS_JSON:" prefix
-                                    progress_data = json.loads(json_str)
-                                    
-                                    self._apply_progress_event(
-                                        execution_id, progress_data, progress_ctx
-                                    )
-
-                                except json.JSONDecodeError as e:
-                                    self.logger.warning(f"Failed to parse JSON progress: {e}")
-                                    consecutive_errors += 1
+                            for progress_data in self.extract_progress_events(line):
+                                self._apply_progress_event(
+                                    execution_id, progress_data, progress_ctx
+                                )
                         else:
                             # No output available, short sleep
                             time.sleep(0.1)

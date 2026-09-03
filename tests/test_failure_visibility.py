@@ -252,7 +252,10 @@ class TestOpenRouterPayload(unittest.TestCase):
 
         response = MagicMock()
         response.status_code = 200
-        response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        # The client streams the body and reads it against a wall-clock deadline,
+        # so a fake has to yield bytes rather than answer .json(). Nothing about
+        # this test depends on that; the assertions are all about the request.
+        response.iter_content.return_value = [b'{"choices": [{"message": {"content": "ok"}}]}']
 
         with patch("model_api_integration.requests.post", return_value=response) as post:
             OpenRouterClient.generate(client, "PROMPT", params)

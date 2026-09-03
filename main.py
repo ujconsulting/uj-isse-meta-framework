@@ -63,6 +63,32 @@ def get_week_of_month(date_str: str) -> int:
     return min(week_num, 5)  # Cap at week 5 for end-of-month runs
 
 
+#: Characters that must never reach a filename.
+#:
+#: The colon is the one that did damage. A dynamic domain puts one into every
+#: combination id ("…_dynamic:Energy Efficiency Engineering"), and on NTFS a colon
+#: in a path does not fail — it opens an *alternate data stream*. So every raw
+#: response was written into a hidden stream beside a visible 0-byte file:
+#: invisible to `cognitive_diversity_extractor.py`, absent from the ZIP export,
+#: and gone the moment the run is copied to anything that is not NTFS.
+#:
+#: Measured on 03.09.2026: all 11 raw responses of a run were 0 bytes on disk,
+#: with the actual 3,651-byte answer in a stream named after the rest of the id.
+#: The rank-prefix renaming had been failing for the same reason, silently, since
+#: it looks the files up under the unsanitised name.
+_UNSAFE_IN_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def safe_filename_part(text: Any, limit: int = 120) -> str:
+    """Turn arbitrary text into one usable path segment.
+
+    Deliberately lossy — the result is a filename, not an identifier. The
+    combination id stays authoritative inside the file, which records it in full.
+    """
+    cleaned = _UNSAFE_IN_FILENAME.sub("_", str(text)).strip(" .")
+    return cleaned[:limit] or "unnamed"
+
+
 class ParallelExecutionEngine:
     """Async execution engine for parallel API calls with intelligent rate limiting."""
     
@@ -320,34 +346,52 @@ class ParallelExecutionEngine:
                     return result
                     
                 except Exception as e:
-                    if attempt < 2:  # Not the final attempt
+                    # Not every failure is worth a second try. The API layer already
+                    # decides this and records it — 4xx responses, a malformed request,
+                    # a call that spent its whole deadline — but the answer was only
+                    # ever written into the failure report, never acted on here. So a
+                    # request the server had already rejected as invalid was sent twice
+                    # more, with backoff, and a call that had just burned five minutes
+                    # was given five more.
+                    retryable = getattr(e, "retryable", None)
+                    attempts = attempt + 1
+
+                    if attempt < 2 and retryable is not False:
                         # Exponential backoff
                         wait_time = 2 ** attempt
-                        self.logger.warning(f"Attempt {attempt + 1} failed for {combo_id}, retrying in {wait_time}s: {str(e)}")
+                        self.logger.warning(f"Attempt {attempts} failed for {combo_id}, retrying in {wait_time}s: {str(e)}")
                         await asyncio.sleep(wait_time)
                     else:
-                        # Final attempt failed
                         self.failed_count += 1
-                        self.logger.error(f"All 3 attempts failed for combination {combo_id}: {str(e)}")
-                        
+                        if retryable is False:
+                            reason = f"not retryable, gave up after {attempts} attempt(s)"
+                        else:
+                            reason = f"all {attempts} attempts failed"
+                        self.logger.error(f"Combination {combo_id}: {reason}: {str(e)}")
+
+                        detail = e.as_dict() if hasattr(e, "as_dict") else {}
                         error_result = {
-                            "error": f"All retries failed: {str(e)}",
+                            "error": f"{reason}: {str(e)}",
+                            "error_detail": detail,
                             "combination_id": combo_id,
                             "timestamp": datetime.now().isoformat(),
-                            "attempts": 3
+                            "attempts": attempts
                         }
-                        
+
                         if self.json_progress:
                             progress_info = {
                                 "type": "combination_failed_parallel",
                                 "combination_id": combo_id,
                                 "error": str(e),
-                                "attempts": 3,
+                                "error_kind": detail.get("error_type") or type(e).__name__,
+                                "status_code": detail.get("status_code"),
+                                "retryable": retryable,
+                                "attempts": attempts,
                                 "timestamp": datetime.now().isoformat()
                             }
                             print(f"PROGRESS_JSON:{json.dumps(progress_info)}")
                             sys.stdout.flush()
-                        
+
                         return error_result
     
     def _execute_combination_sync(self, combination: Dict[str, Any]) -> Dict[str, Any]:
@@ -1068,7 +1112,9 @@ class ISEEApplication:
             model_name = combination.get("model", "unknown").replace("/", "_")
             template_id = combination.get("template", "unknown")
             
-            filename = f"{combo_id}_{model_name}_{template_id}.md"
+            filename = (f"{safe_filename_part(combo_id)}"
+                        f"_{safe_filename_part(model_name, 40)}"
+                        f"_{safe_filename_part(template_id, 40)}.md")
             filepath = responses_dir / filename
             
             # Save response with metadata
@@ -1755,12 +1801,16 @@ class ISEEApplication:
                 if not combo_id:
                     continue
                 
-                # Find existing file for this combination
-                # First try original pattern, then try pattern with rank prefix
-                existing_files = list(responses_dir.glob(f"{combo_id}_*.md"))
+                # Find the existing file for this combination, first under its own
+                # name and then under an already-ranked one. Matched by substring
+                # rather than glob: a combination id carries the domain name, which
+                # may contain glob metacharacters, and it has to be looked up under
+                # the same sanitised form it was written with.
+                safe_id = safe_filename_part(combo_id)
+                candidates = list(responses_dir.glob("*.md"))
+                existing_files = [p for p in candidates if p.name.startswith(f"{safe_id}_")]
                 if not existing_files:
-                    # Look for already renamed files (with rank prefix)
-                    existing_files = list(responses_dir.glob(f"*_{combo_id}_*.md"))
+                    existing_files = [p for p in candidates if f"_{safe_id}_" in p.name]
                 
                 if not existing_files:
                     errors.append(f"Rank {rank}: No file found for combination {combo_id}")
@@ -3461,7 +3511,21 @@ def main():
             import run_cost_report
 
             summary = run_cost_report.summarise(results, config_path=args.config)
-            print(run_cost_report.format_report(summary, run_cost_report.remaining_credit()))
+            report = run_cost_report.format_report(summary, run_cost_report.remaining_credit())
+            print(report)
+
+            # Keep it with the run, not only on stdout.
+            #
+            # What a run cost is derived from the billed tokens in the results, and
+            # those live only in memory. A markdown run writes no isee_result.json,
+            # so for exactly the runs the web UI produces the figure could never be
+            # recomputed afterwards — it existed once, in a terminal, and was gone.
+            output_directory = getattr(app, "output_directory", None)
+            if output_directory:
+                cost_path = Path(output_directory) / "cost_report.txt"
+                cost_path.write_text(report, encoding="utf-8")
+                summary_path = Path(output_directory) / "cost_report.json"
+                summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         except Exception as exc:
             print(f"⚠️  Could not produce the cost report: {exc}")
 
