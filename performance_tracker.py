@@ -7,11 +7,19 @@ Automatically ingests test results and tracks performance trends.
 import sqlite3
 import pandas as pd
 import json
+import logging
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 import hashlib
+
+# This module is a library: it is imported by main.py and by app.py, and it must
+# not write to their stdout. It used to print status lines with emoji, which on a
+# Windows console in cp1252 raises UnicodeEncodeError — it only ever worked because
+# both callers reconfigure stdout to UTF-8 at import. Anyone importing this module
+# on its own got a database created and then a crash on the success message.
+logger = logging.getLogger(__name__)
 
 class PerformanceTracker:
     def __init__(self, db_path: str = "data/performance_tracking.db"):
@@ -99,7 +107,7 @@ class PerformanceTracker:
         
         conn.commit()
         conn.close()
-        print(f"✅ Performance tracking database initialized at {self.db_path}")
+        logger.info("Performance tracking database initialized at %s", self.db_path)
     
     def generate_query_hash(self, query_text: str) -> str:
         """Generate consistent hash for query text"""
@@ -173,14 +181,14 @@ class PerformanceTracker:
         """Ingest a test run directory into the performance database"""
         run_dir = Path(run_directory)
         if not run_dir.exists():
-            print(f"❌ Run directory not found: {run_directory}")
+            logger.error("Run directory not found: %s", run_directory)
             return False
         
-        print(f"🔍 Processing test run: {run_dir.name}")
+        logger.info("Processing test run: %s", run_dir.name)
         run_data = self.parse_run_directory(run_dir)
         
         if not run_data.get('query_text'):
-            print(f"⚠️  Could not extract query text from {run_dir.name}")
+            logger.warning("Could not extract query text from %s", run_dir.name)
             return False
         
         # Determine collection info
@@ -245,11 +253,11 @@ class PerformanceTracker:
             self._detect_performance_issues(cursor, run_data)
             
             conn.commit()
-            print(f"✅ Successfully ingested test run {run_data['run_id']}")
+            logger.info("Successfully ingested test run %s", run_data["run_id"])
             return True
             
         except Exception as e:
-            print(f"❌ Error ingesting test run: {e}")
+            logger.error("Error ingesting test run: %s", e)
             conn.rollback()
             return False
         finally:
@@ -411,4 +419,14 @@ def main():
         print(df.to_string(index=False))
 
 if __name__ == "__main__":
+    # The CLI half may print freely — but it has to make its own stream capable
+    # first. Unlike main.py and app.py, nothing reconfigures stdout for it.
+    import sys
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     main()
