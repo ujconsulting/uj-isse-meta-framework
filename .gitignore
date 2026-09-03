@@ -42,6 +42,14 @@ data/rankings_cache.json
 .dev-server.pid
 dev-server.log
 
+# Run history. Operating data, not source — and it carries the full text of every
+# research question ever asked. It was tracked, so every run left a modified binary
+# in the working tree waiting for a careless `git add -A` to publish it. What is
+# already committed stays in the history (it holds the upstream author's queries,
+# public in this fork since it was created); untracking stops it from growing.
+data/performance_tracking.db
+data/enhancement_tracking.db
+
 # IDE files
 .idea/
 .vscode/
