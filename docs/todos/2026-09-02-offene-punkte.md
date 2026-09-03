@@ -9,8 +9,17 @@ Reihenfolge = grobe Priorität, nicht Aufwand.
 
 > **Nachtrag 03.09.2026** — Route A, Punkt 1 ist erledigt (`837c01f`), fiel dabei aber
 > deutlich größer aus als hier beschrieben, und die Beschreibung selbst war teilweise
-> falsch. Einzelheiten am Tabelleneintrag. Neue Funde aus derselben Sitzung stehen unter
-> 2.5–2.7.
+> falsch. Einzelheiten am Tabelleneintrag.
+>
+> Anschließend 2.5 bis 2.9 (`a3c0f6d`) — fünf Funde derselben Sitzung, alle beim
+> **Ausführen** entstanden, nicht beim Lesen: verlorene Rohantworten, ein Drittel
+> verschluckter Fortschrittsereignisse, unbegrenzte Aufrufe, ignorierte
+> Wiederholbarkeits-Auskunft, sechs unerreichbare Modelle. Offen bleibt davon nur die
+> Anzeige der Kosten in der Oberfläche (2.6), bewusst hinter Route A #4 gestellt.
+>
+> **Muster, das sich durchzieht:** Fast jeder dieser Fehler war *unsichtbar* — die
+> Oberfläche meldete Erfolg, das Log schwieg oder protokollierte auf Debug-Ebene, und die
+> Dateien waren da, nur leer. Nichts davon wäre durch Codelesen aufgefallen.
 
 ---
 
@@ -86,37 +95,80 @@ Aktuell eingedämmt (`B5`): `globant` und `hybrid` brechen ohne echte Zugangsdat
 Exit 2 ab. Die eigentliche Reparatur — Ausführung über `ProviderManager` routen — ist ein
 Refactoring und gehört zu Punkt 5.1.
 
-### 2.5 Die Oberfläche bietet nur 8 der 14 Modelle an
-*(gefunden 03.09.2026)* `loadModels()` ruft `/api/models?strategic_only=true` auf und
-bekommt 8 Einträge; ohne den Parameter liefert dieselbe Route alle 14. Die Modellauswahl,
-die im Auswahl-Commit gebaut wurde, kann also über sechs Modelle gar nicht verfügen —
-darunter Mistral, Nemotron, MiniMax, Solar und Hunyuan.
+### 2.5 Die Oberfläche bot nur 8 der 14 Modelle an — **erledigt** (`a3c0f6d`)
+*(gefunden und behoben 03.09.2026)* Kein Fehler, sondern eine Entscheidung aus `93f76e6`:
+`ui_priority` stuft 8 Modelle als `strategic` und 6 als `standard` ein, `loadModels()`
+filterte auf die erste Stufe. Solange die Kacheln reine Anzeige waren, war das eine
+vertretbare Vereinfachung; seit sie die Modellauswahl **sind**, waren sechs Häuser
+unerreichbar, ohne dass die Seite ihre Existenz erwähnte.
 
-**Zu entscheiden:** bewusste Kuratierung (dann gehört ein Hinweis in die Oberfläche) oder
-Rest einer früheren Vereinfachung (dann alle 14 anbieten und `strategic_only` als
-Vorauswahl statt als Filter verwenden).
+Die Stufe ist jetzt Vorauswahl statt Filter: alle 14 sichtbar, dieselben 8 angehakt, ein
+unverändert gestarteter Lauf verhält sich also wie zuvor. Im Prüflauf lieferte **Mistral
+Small** — eine Stunde zuvor nicht anwählbar — die zweitbestbewertete Antwort bei 4 % der
+Laufkosten.
 
-### 2.6 Kostenbericht liest keine Markdown-Läufe
-*(gefunden 03.09.2026)* `run_cost_report.py <lauf>` erwartet `isee_result.json`. Die
-Weboberfläche startet aber immer mit `--output-format markdown`, also entsteht nur
-`isee_result.md` — für genau die Läufe, die über die Oberfläche entstehen, ist der
-Nachrechner damit nicht benutzbar. `FileNotFoundError`, nicht abgefangen.
+### 2.6 Kostenbericht — Lesehälfte **erledigt**, Anzeige offen
+*(03.09.2026)* `run_cost_report.py <lauf>` erwartete `isee_result.json`; die Oberfläche
+startet immer mit `--output-format markdown`. Für genau die Läufe, die man über die
+Oberfläche macht, war der Nachrechner damit unbenutzbar — und die Zahlen selbst existierten
+nur einmal, auf einem Terminal.
 
-Die Zahlen selbst gehen nicht verloren: `main.py` druckt den Bericht am Ende jedes Laufs,
-er landet über den Unterprozess in `dev-server.log`. Er erscheint nur **nirgends in der
-Oberfläche** — der Wunsch nach sauber ausgewiesenen Kosten ist damit erst halb erfüllt.
+Behoben (`a3c0f6d`): jeder Lauf legt `cost_report.txt` und `cost_report.json` in sein
+Verzeichnis, der Nachrechner liest beide Formen und lädt `.env`, damit die Guthabenzeile
+auch beim Einzelaufruf erscheint.
 
-### 2.7 Zwei API-Pfade ohne Zeitlimit
-*(gefunden 03.09.2026)* `model_api_integration.py:241` und `:315` rufen `requests.post`
-**ohne** `timeout`. Die übrigen vier Aufrufe haben eines (120 s bzw. 30 s). Betrifft
-derzeit nicht den OpenRouter-Pfad, aber ein Aufruf ohne Zeitlimit hängt unbegrenzt und
-nimmt den ganzen Lauf mit.
+**Weiterhin offen:** die Zahl in der **Oberfläche** zeigen. Bewusst zurückgestellt bis
+nach Route A #4 — heute käme sie nur aus der stdout-Ausgabe des Unterprozesses, und genau
+diese Schicht entfällt dort.
 
-Beobachtet am selben Tag, wenn auch auf dem Pfad *mit* Zeitlimit: ein Aufruf an GLM 5.3
-Flash brauchte **278 Sekunden** und wurde als Versuch 1 erfolgreich beendet — das
-`timeout=120` hat dort also nicht gegriffen (vermutlich Lesezeitlimit je Paket, nicht für
-die Gesamtdauer). Ein Volllauf kann damit an einem einzigen langsamen Modell hängen, ohne
-dass die Oberfläche erklärt, worauf gewartet wird.
+### 2.7 Aufrufe waren nicht begrenzt — **erledigt** (`a3c0f6d`)
+*(gefunden und behoben 03.09.2026)* Zwei Aufrufe (`model_api_integration.py`, Anthropic-
+und OpenAI-Client) gingen ganz ohne `timeout` raus.
+
+Wichtiger: `timeout=` begrenzt bei `requests` die **Stille auf der Leitung, nicht die
+Dauer**. Gemessen gegen OpenRouter: ein 77,8-Sekunden-Aufruf hatte nie eine Lücke größer
+als 3,0 Sekunden zwischen zwei Bytes, ein 10-Sekunden-Limit löste kein einziges Mal aus —
+das Gateway hält die Verbindung mit Füllbytes warm. Deshalb konnte ein Aufruf an GLM 5.3
+Flash 278 Sekunden laufen und als Versuch 1 erfolgreich enden. Die Antwort wird jetzt
+gestreamt und gegen eine Wanduhr-Frist gelesen (`CALL_DEADLINE_SECONDS`).
+
+Dabei mitgefunden: die Wiederholungsschleife las das `retryable`-Feld nie, das die
+API-Schicht sorgfältig setzt (4xx ausdrücklich *nicht* wiederholbar) und in den
+Fehlerbericht schreibt. Eine vom Server als fehlerhaft abgewiesene Anfrage wurde also
+zweimal nachgereicht. Jetzt bricht sie beim ersten Versuch ab.
+
+### 2.8 Rohantworten landeten in NTFS-Datenströmen — **erledigt** (`a3c0f6d`)
+*(gefunden 03.09.2026)* Eine dynamische Domäne setzt einen **Doppelpunkt** in jede
+`combination_id` (`…_dynamic:Energy Systems`). Unter NTFS schlägt ein Doppelpunkt im Pfad
+nicht fehl — er adressiert einen *alternativen Datenstrom*. `save_raw_response` schrieb die
+Antwort also in einen versteckten Stream und ließ eine sichtbare 0-Byte-Datei zurück.
+
+Gemessen: **11 von 11** Rohantworten eines Laufs waren leer, mit 3.651 Bytes in einem
+Stream namens `Sustainable IT Infrastructure_or_claude_sonnet_5_ins_creative.md`. Damit
+war der Cognitive Diversity Explorer die ganze Zeit leer, der ZIP-Download unvollständig,
+und beim Kopieren auf irgendetwas außer NTFS wären die Antworten verschwunden. Die
+Rang-Umbenennung schlug aus demselben Grund still fehl.
+
+Nach der Korrektur: 11 von 11 nicht-leer, korrekt als `01_` … `11_` benannt.
+
+**Altbestand:** Läufe vor dem 03.09.2026 haben ihre Antworten noch in den Streams. Sie
+sind mit PowerShell auslesbar (`Get-Item <datei> -Stream *`), gehen aber bei jeder Kopie
+verloren. Falls die alten Läufe erhalten bleiben sollen, wäre eine einmalige
+Rettungsschleife nötig — bisher nicht gemacht.
+
+### 2.9 Ein Drittel der Fortschrittsereignisse ging verloren — **erledigt** (`a3c0f6d`)
+*(gefunden 03.09.2026)* Der Motor druckt Fortschrittsereignisse aus einem Thread-Pool;
+nebenläufige `print()`-Aufrufe verschmelzen, sodass ein Ereignis regelmäßig **mitten in
+einer Zeile** hinter fremder Ausgabe steht (`…using provider: openrouterPROGRESS_JSON:{…}`).
+Der Leser verlangte, dass die Zeile mit der Marke *beginnt*.
+
+Gemessen am Log eines echten Laufs: der alte Leser findet **5 von 11** Startereignissen,
+der neue alle 11 (19 gegen 25 Ereignisse insgesamt). Wird jetzt mit `raw_decode` überall
+in der Zeile gefunden.
+
+⚠️ Die Verschmelzung selbst bleibt — sie ist eine Eigenschaft davon, strukturierte
+Ereignisse durch einen geteilten Textstrom zu schicken. Sie verschwindet mit Route A #4,
+nicht vorher. Ein weiteres Argument für diesen Schritt.
 
 ---
 
