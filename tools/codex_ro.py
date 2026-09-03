@@ -100,7 +100,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-WRAPPER_VERSION = "2.3.0"
+WRAPPER_VERSION = "2.3.1"
 
 DEFAULT_MODEL = "gpt-5.6-terra"
 EFFORT_CHOICES = ("low", "medium", "high", "xhigh", "max")
@@ -182,11 +182,20 @@ SCRATCH_DIR_ENV = "CLAUDEX_SCRATCH_DIR"
 
 
 def _is_private_dir(path: Path) -> bool:
-    """True when this directory is not writable by other local users.
+    """True when no other local user can replace this directory or its parents.
 
-    On POSIX the question is real and answered for real: `/tmp` (mode 1777) is
-    exactly the case this exists to exclude, and the ancestor walk below catches
-    a private leaf under a world-writable parent too.
+    On POSIX the question is real and answered for real. The rule is not "is
+    anything world-writable" — that was the first version, and it was wrong in a
+    way that only Linux showed: it refused every harness scratchpad under `/tmp`
+    while accepting the identical layout on macOS, where `gettempdir()` happens
+    to return a per-user path.
+
+    What actually protects a directory entry is the **sticky bit**. `/tmp` is
+    `drwxrwxrwt`: world-writable, but only an entry's owner may rename or unlink
+    it. That is the whole reason `mkdtemp` is considered safe there. So an
+    ancestor passes when it is not world-writable, OR when it is sticky and
+    owned by root or by us. The leaf itself must be ours and closed to group
+    and other.
 
     ⛔ On Windows this is NOT a check, it is an assumption: `os.stat` reports
     0o777 for everything, so there is no cheap equivalent of the S_IWOTH test --
@@ -206,15 +215,41 @@ def _is_private_dir(path: Path) -> bool:
         return True
     import stat
 
+    try:
+        me = os.geteuid()
+    except AttributeError:  # pragma: no cover - POSIX always has it
+        return True
+
     # Every ancestor, not just the directory itself: a private leaf under a
-    # world-writable parent can be replaced wholesale, which is the same race
+    # parent anyone can rewrite is replaceable wholesale, which is the same race
     # one level up. Walk upward to the filesystem root.
-    for candidate in (path, *path.parents):
+    for depth, candidate in enumerate((path, *path.parents)):
         try:
-            if os.stat(candidate).st_mode & stat.S_IWOTH:
-                return False
+            st = os.stat(candidate)
         except OSError:
             return False
+
+        if depth == 0:
+            # The leaf itself must be ours and writable by nobody else.
+            if st.st_uid != me or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                return False
+            continue
+
+        if not st.st_mode & stat.S_IWOTH:
+            continue  # no outsider can create or rename entries here
+
+        # World-writable AND sticky is the /tmp case, and it is safe: the sticky
+        # bit is precisely the rule that only an entry's owner (or the
+        # directory's, or root) may rename or unlink it. That is what makes
+        # mkdtemp trustworthy, and rejecting it outright — as this did until
+        # 2026-09-03 — locked out every harness scratchpad on Linux while
+        # letting the same layout through on macOS, where gettempdir() happens
+        # to be a per-user path. The owner check matters: a sticky directory
+        # owned by someone else still lets its owner remove our entries.
+        if st.st_mode & stat.S_ISVTX and st.st_uid in (0, me):
+            continue
+
+        return False
     return True
 
 
@@ -655,8 +690,24 @@ def kill_tree(proc: subprocess.Popen) -> None:
         import signal
 
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            return
+            pgid = os.getpgid(proc.pid)
+            if pgid == os.getpgid(0):
+                # ⛔ The child shares OUR process group, so killpg would take this
+                # wrapper, the shell that launched it, and anything else in the
+                # group down with it. Demonstrated 2026-09-03: a test that spawned
+                # its child without start_new_session made every POSIX CI job die
+                # as "the hosted runner lost communication with the server" — the
+                # SIGKILL reached the runner agent. Windows was unaffected because
+                # taskkill /T is scoped to the process tree.
+                #
+                # main() always spawns with start_new_session=True, so this branch
+                # should be unreachable there. It exists because the consequence of
+                # being wrong is killing the caller, and that is too expensive to
+                # leave to an invariant nobody re-checks after a refactor.
+                warn("child shares this process group -- killing only the child.")
+            else:
+                os.killpg(pgid, signal.SIGKILL)
+                return
         except OSError as exc:
             warn(f"killpg failed: {exc}")
     try:
@@ -770,6 +821,30 @@ def main(argv: list[str] | None = None) -> int:
         die(f"--resume does not look like a thread id: {args.resume}", EXIT_REFUSED)
     if args.timeout <= 0:
         die(f"--timeout must be positive: {args.timeout}", EXIT_REFUSED)
+
+    # 1b. Not in a git repo: say so HERE, not through Codex's error.
+    #
+    # Codex refuses with "Not inside a trusted directory and --skip-git-repo-check
+    # was not specified" -- and it does that BEFORE the model is reached, so there
+    # is no answer file and no thread.started line. That signature is identical to
+    # an expired token, which is what makes it expensive to diagnose (upstream
+    # issue #10, and upstream PR #15 which proposes passing the flag everywhere).
+    #
+    # ⛔ This wrapper does NOT offer that flag, deliberately. Under `-s read-only`
+    # it would be harmless; under the `--yolo` of the build step there is no
+    # sandbox at all, and the git-repo check is then the LAST boundary left. A
+    # flag an agent learns to reach for in one skill it will reach for in the
+    # other. So: fail early, name both real remedies, offer no third one.
+    if _repo_root(Path.cwd().resolve()) is None:
+        die(
+            f"not inside a git repository: {Path.cwd()}\n"
+            "  Codex would refuse here anyway, but with no answer file and no\n"
+            "  thread.started line -- indistinguishable from an auth failure.\n"
+            "  Fix: run from the repo root, or `git init` for genuine greenfield.\n"
+            "  This wrapper does not pass --skip-git-repo-check: that check is the\n"
+            "  only write boundary left once a build runs without a sandbox.",
+            EXIT_REFUSED,
+        )
 
     # 2. Paths -- resolved and confined before anything is created or deleted.
     #    Two root sets on purpose: --allow-path widens reads, never writes. See
