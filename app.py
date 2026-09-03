@@ -348,6 +348,48 @@ class ISEEWebDemo:
             )
             return []
     
+    def _domain_flags(self, selected_domains: Optional[List[str]],
+                      single_domain: Optional[str] = None) -> List[str]:
+        """Turn the run's domains into command-line flags.
+
+        `--domain` is validated by the engine and aborts the run if the name is
+        unknown; `--dynamic-domain` takes any name and uses it as context. So a
+        domain goes on the validated flag only when the engine can actually
+        resolve it, and everything else — in particular whatever
+        `/api/suggest-domains` generated for this query — goes on the dynamic one.
+        """
+        flags: List[str] = []
+        for candidate in (selected_domains or ([single_domain] if single_domain else [])):
+            if not candidate:
+                continue
+            explicit_dynamic = candidate.startswith('dynamic:')
+            name = candidate[len('dynamic:'):] if explicit_dynamic else candidate
+            if not name:
+                continue
+            if not explicit_dynamic and self._is_known_domain(name):
+                flags.extend(["--domain", name])
+            else:
+                flags.extend(["--dynamic-domain", name])
+        return flags
+
+    def _is_known_domain(self, identifier: str) -> bool:
+        """Can the engine resolve this domain by id or by exact name?
+
+        Mirrors the lookup in `main.py`: an id match, or a case-insensitive match
+        on the display name. Both sides build their domain manager from
+        `create_default_domains()`, so the two lists agree. When in doubt the
+        answer must be False — an unknown name passed as `--domain` aborts the
+        run, whereas a known one passed as `--dynamic-domain` merely loses the
+        stored description.
+        """
+        wanted = (identifier or "").strip().lower()
+        if not wanted:
+            return False
+        for domain in self.domain_manager.list_domains():
+            if domain.id.lower() == wanted or domain.name.lower() == wanted:
+                return True
+        return False
+
     def _load_actual_domains(self):
         """Load domains from actual ISEE domain system"""
         # Load default domains (now includes all 15 domains: Core, Technical Writing, and Learning Design)
@@ -597,29 +639,24 @@ class ISEEWebDemo:
                 self.logger.debug(f"Added query: {converted_params['query'][:100]}...")
             
             # Add selected domains (support both static and dynamic domains)
-            domain = converted_params.get("domain")
-            selected_domains = converted_params.get("domains", [])
-            use_dynamic_domains = converted_params.get("strategic_models", False)  # Smart Auto-Pilot uses dynamic domains
-            
-            if selected_domains:
-                # Add multiple domain flags for execution
-                for domain_id in selected_domains:
-                    if use_dynamic_domains or domain_id.startswith('dynamic:'):
-                        # Use dynamic domain flag (bypasses validation)
-                        clean_domain = domain_id.replace('dynamic:', '') if domain_id.startswith('dynamic:') else domain_id
-                        cmd.extend(["--dynamic-domain", clean_domain])
-                        self.logger.debug(f"Added dynamic domain: {clean_domain}")
-                    else:
-                        # Use traditional static domain flag
-                        cmd.extend(["--domain", domain_id])
-                        self.logger.debug(f"Added static domain: {domain_id}")
-            elif domain:
-                if use_dynamic_domains:
-                    cmd.extend(["--dynamic-domain", domain])
-                    self.logger.debug(f"Added single dynamic domain: {domain}")
-                else:
-                    cmd.extend(["--domain", domain])
-                    self.logger.debug(f"Added single static domain: {domain}")
+            #
+            # Whether a domain has to pass validation depends on the domain, not on
+            # which models are in play. This used to be decided by `strategic_models`:
+            # once the UI began sending an explicit model selection that flag went
+            # false, every AI-suggested domain went out as a validated `--domain`, and
+            # the engine rejected the first one — killing the run before a single call
+            # was made, while the interface still reported it as completed.
+            #
+            # `--domain` is only correct for a domain the engine actually knows;
+            # anything else is contextual guidance and belongs on `--dynamic-domain`,
+            # which is exactly what `/api/suggest-domains` produces.
+            domain_flags = self._domain_flags(
+                converted_params.get("domains", []),
+                converted_params.get("domain"),
+            )
+            cmd.extend(domain_flags)
+            if domain_flags:
+                self.logger.debug(f"Domain flags: {' '.join(domain_flags)}")
             
             # Add cognitive frameworks - use converted framework IDs instead of Web UI names
             if converted_params.get("instruction_templates"):
@@ -861,7 +898,22 @@ class ISEEWebDemo:
                 succeeded = st.get("succeeded_combinations", 0)
                 total = st.get("total_combinations", 0)
 
-                if failed and succeeded == 0:
+                if not total and not failed and not succeeded:
+                    # The engine never announced a run, so it died before the first
+                    # call — a bad argument, a missing config, an import error. Exit
+                    # code 1 covers both that and "some calls failed", so the code
+                    # alone cannot tell them apart; the absence of any run is what
+                    # distinguishes them. Without this the interface reported a
+                    # crash as a finished analysis, at 100%.
+                    run_status = "failed"
+                    detail = (stderr or "").strip().splitlines()
+                    reason = detail[-1] if detail else "no error output was captured"
+                    completion_message = (
+                        "❌ The analysis engine stopped before it ran a single model "
+                        f"call (exit code {process.returncode}). Nothing was produced.\n"
+                        f"Reason: {reason}"
+                    )
+                elif failed and succeeded == 0:
                     run_status = "failed"
                     completion_message = (
                         f"❌ Every one of the {failed} model call(s) failed. "
@@ -1162,14 +1214,224 @@ class ISEEWebDemo:
         converted.setdefault("balanced_models", False)
         
         return converted
-    
+
+    # ------------------------------------------------------------------
+    # Progress events
+    # ------------------------------------------------------------------
+    # A run reports itself as a stream of PROGRESS_JSON events. Folding one event
+    # into the run's status is kept apart from reading the pipe on purpose: it is
+    # the half worth testing, and it is the half that stays if the engine is ever
+    # imported directly instead of spawned. Only the producer would change then,
+    # not this.
+
+    #: How many calls the status carries for display. Bookkeeping keeps all of
+    #: them regardless — see `new_progress_context`.
+    DISPLAY_CALLS = 20
+
+    @staticmethod
+    def new_progress_context() -> Dict[str, Any]:
+        """Per-run bookkeeping for the progress stream.
+
+        `calls` is the complete register of every combination the run announced,
+        keyed by combination_id, and is deliberately never truncated. A completion
+        event names a call that may have started dozens of events earlier, and it
+        can only be matched while that call is still on record. The previous code
+        kept just the last eight, so under parallel execution most completions
+        found nothing to update and were dropped without a trace.
+        """
+        return {"total": 0, "completed": 0, "calls": {}, "unmatched": 0}
+
+    @staticmethod
+    def _format_minutes(minutes: float) -> str:
+        """Render a duration the way the progress line reads it."""
+        if minutes < 1:
+            return f"{int(minutes * 60)}s"
+        if minutes < 60:
+            return f"{int(minutes)}m"
+        return f"{int(minutes // 60)}h {int(minutes % 60)}m"
+
+    def _publish_calls(self, status: Dict[str, Any], ctx: Dict[str, Any]) -> None:
+        """Copy the register into the status the browser polls.
+
+        `active_parallel_calls` is derived from the register every time rather
+        than accumulated, so a call that is still running cannot silently drop out
+        of the list it belongs to.
+        """
+        calls = list(ctx["calls"].values())
+        status["active_parallel_calls"] = [c for c in calls if c["status"] == "processing"]
+        status["current_calls"] = calls[-self.DISPLAY_CALLS:]
+
+    def _apply_progress_event(self, execution_id: str, event: Dict[str, Any],
+                              ctx: Dict[str, Any]) -> None:
+        """Fold one PROGRESS_JSON event into the run's status."""
+        status = self.execution_status.get(execution_id)
+        if status is None:
+            return
+
+        etype = event.get("type")
+        if not etype:
+            self.logger.warning(f"Progress event without a type, ignored: {event!r}")
+            return
+
+        # `main.py` announces the run as `execution_start` on the sequential path
+        # and as `parallel_execution_start` on the parallel one. The web UI always
+        # takes the parallel path, so listening for only the first left the total
+        # at zero for every single web run — and a zero total then divided.
+        if etype in ("execution_start", "parallel_execution_start"):
+            ctx["total"] = event.get("total_combinations") or 0
+            ctx["completed"] = 0
+            ctx["calls"].clear()
+            ctx["unmatched"] = 0
+            status.update({
+                "progress": 10,
+                "message": f"Starting execution of {ctx['total']} LLM calls...",
+                "total_combinations": ctx["total"],
+                "completed_combinations": 0,
+                "failed_combinations": 0,
+                "succeeded_combinations": 0,
+                "current_calls": [],
+                "active_parallel_calls": [],
+            })
+            return
+
+        if etype in ("combination_start", "combination_start_parallel"):
+            self._on_combination_start(status, event, ctx)
+            return
+
+        if etype in ("combination_complete", "combination_complete_parallel",
+                     "combination_failed_parallel"):
+            self._on_combination_end(status, event, ctx)
+            return
+
+        if etype == "parallel_execution_complete":
+            # The run's own tally, and the authoritative one. Without it the only
+            # completion signal is the exit code, which is 0 for a run in which
+            # every call failed — the UI then reported "completed successfully"
+            # over an entirely fabricated report.
+            status.update({
+                "failed_combinations": event.get("failed", 0),
+                "succeeded_combinations": event.get("completed", 0),
+            })
+            return
+
+        self.logger.debug(f"Unhandled progress event type {etype!r}")
+
+    def _on_combination_start(self, status: Dict[str, Any], event: Dict[str, Any],
+                              ctx: Dict[str, Any]) -> None:
+        combo_id = event.get("combination_id") or f"combo_{len(ctx['calls'])}"
+        started = datetime.now()
+
+        ctx["calls"][combo_id] = {
+            "combination_id": combo_id,
+            "model": event.get("model", "Unknown"),
+            # The display name is what a person reads; the id is what the browser
+            # matches an indicator on. Sending both spares the front end a ladder
+            # of substring guesses against the visible label.
+            "model_id": event.get("model_id"),
+            "framework": event.get("framework", "Unknown"),
+            "framework_id": event.get("framework_id"),
+            "domain": event.get("domain", "Unknown"),
+            "provider": event.get("provider", "Unknown"),
+            "status": "processing",
+            "start_time": started.isoformat(),
+            "is_parallel": event.get("type") == "combination_start_parallel",
+        }
+
+        total = ctx["total"]
+        done = ctx["completed"]
+        if "combination_index" in event:
+            index = event["combination_index"]
+            percent = int(index / total * 100) if total else 0
+            position = f"({index}/{total or '?'} - {percent}%)"
+        else:
+            percent = event.get("progress_percent")
+            if percent is None:
+                percent = int(done / total * 100) if total else 0
+            position = f"({done + 1}/{total or '?'} - {percent}%)"
+
+        elapsed = self._elapsed_minutes(status, started)
+        if done > 0 and total:
+            velocity = done / max(elapsed, 0.1)
+            remaining = (total - done) / max(velocity, 0.01)
+            eta = "< 1 min" if remaining < 1 else self._format_minutes(remaining)
+        else:
+            eta = "calculating..."
+
+        status["message"] = (f"Processing {event.get('model', 'model')} with "
+                             f"{event.get('framework', 'framework')} {position} • ETA: {eta}")
+        status["progress"] = 10 + (int(done / total * 80) if total else 0)
+        self._publish_calls(status, ctx)
+
+    def _on_combination_end(self, status: Dict[str, Any], event: Dict[str, Any],
+                            ctx: Dict[str, Any]) -> None:
+        # `combination_failed_parallel` is emitted once all three attempts are
+        # spent. It used to have no handler at all, so an exhausted call stayed
+        # "processing" in the UI for the rest of the run and was never counted.
+        failed_outright = event.get("type") == "combination_failed_parallel"
+        success = False if failed_outright else event.get("success", True)
+
+        combo_id = event.get("combination_id")
+        call = ctx["calls"].get(combo_id) if combo_id else None
+        if call is None:
+            # Sequential runs may omit the id; there is exactly one call in flight
+            # then, so it is unambiguous. Guessing "the most recently started"
+            # under parallel execution, as the old code did, named the wrong call
+            # almost every time.
+            in_flight = [c for c in ctx["calls"].values() if c["status"] == "processing"]
+            if len(in_flight) == 1:
+                call = in_flight[0]
+            else:
+                ctx["unmatched"] += 1
+                self.logger.warning(
+                    f"Completion for unknown combination {combo_id!r} "
+                    f"({len(in_flight)} calls in flight); counted, not attributed"
+                )
+
+        ctx["completed"] += 1
+        if call is not None:
+            call["status"] = "completed" if success else "error"
+            call["end_time"] = datetime.now().isoformat()
+            if not success:
+                call["error"] = event.get("error", "Unknown error")
+            if "response_length" in event:
+                call["response_length"] = event["response_length"]
+            if "attempts" in event:
+                call["attempts"] = event["attempts"]
+
+        if not success:
+            status["failed_combinations"] = status.get("failed_combinations", 0) + 1
+
+        total = ctx["total"]
+        done = ctx["completed"]
+        percent = int(done / total * 100) if total else 0
+        elapsed = self._format_minutes(self._elapsed_minutes(status, datetime.now()))
+
+        message = f"Completed {done}/{total or '?'} LLM calls ({percent}%) • Elapsed: {elapsed}"
+        if not success:
+            message += f" (Call failed: {event.get('error', 'Unknown error')})"
+
+        status.update({
+            "progress": 10 + (int(done / total * 80) if total else 0),
+            "message": message,
+            "completed_combinations": done,
+        })
+        self._publish_calls(status, ctx)
+
+    @staticmethod
+    def _elapsed_minutes(status: Dict[str, Any], now: datetime) -> float:
+        """Minutes since the run started, 0.0 if the start time is unusable."""
+        try:
+            started = datetime.fromisoformat(status["start_time"])
+        except (KeyError, TypeError, ValueError):
+            return 0.0
+        return (now - started).total_seconds() / 60
+
     def _monitor_subprocess_progress(self, process, execution_id: str):
         """Real-time progress monitoring from CLI JSON output and wait for completion"""
         self.logger.debug(f"Starting JSON progress monitoring for execution {execution_id}")
         
         # Initialize progress tracking
-        total_combinations = 0
-        completed_combinations = 0
+        progress_ctx = self.new_progress_context()
         stdout_lines = []
         stderr_lines = []
         
@@ -1214,156 +1476,10 @@ class ISEEWebDemo:
                                     json_str = line[14:]  # Remove "PROGRESS_JSON:" prefix
                                     progress_data = json.loads(json_str)
                                     
-                                    # Failure accounting. `main.py` reports per-combination
-                                    # outcomes and a final tally; without reading them the
-                                    # only completion signal here is the subprocess exit
-                                    # code, which is 0 for a run in which every single
-                                    # call failed — the UI then said "completed
-                                    # successfully" over an entirely fabricated report.
-                                    if progress_data.get("type") == "parallel_execution_complete":
-                                        self.execution_status[execution_id].update({
-                                            "failed_combinations": progress_data.get("failed", 0),
-                                            "succeeded_combinations": progress_data.get("completed", 0),
-                                        })
-                                    elif (progress_data.get("type") == "combination_complete_parallel"
-                                          and progress_data.get("success") is False):
-                                        st = self.execution_status[execution_id]
-                                        st["failed_combinations"] = st.get("failed_combinations", 0) + 1
+                                    self._apply_progress_event(
+                                        execution_id, progress_data, progress_ctx
+                                    )
 
-                                    if progress_data["type"] == "execution_start":
-                                        total_combinations = progress_data["total_combinations"]
-                                        self.execution_status[execution_id].update({
-                                            "progress": 10,
-                                            "message": f"Starting execution of {total_combinations} LLM calls...",
-                                            "total_combinations": total_combinations,
-                                            "completed_combinations": 0,
-                                            "failed_combinations": 0,
-                                            "succeeded_combinations": 0,
-                                            "current_calls": []
-                                        })
-
-                                    elif progress_data["type"] in ["combination_start", "combination_start_parallel"]:
-                                        # Handle both sequential and parallel execution modes
-                                        current_time = datetime.now()
-                                        start_time = datetime.fromisoformat(self.execution_status[execution_id]["start_time"])
-                                        elapsed_minutes = (current_time - start_time).total_seconds() / 60
-                                        
-                                        # Calculate progress based on available data
-                                        if "combination_index" in progress_data:
-                                            # Sequential execution mode
-                                            progress_percentage = int((progress_data['combination_index'] / total_combinations) * 100)
-                                            combination_info = f"({progress_data['combination_index']}/{total_combinations} - {progress_percentage}%)"
-                                        else:
-                                            # Parallel execution mode - use progress_percent if available
-                                            progress_percentage = progress_data.get('progress_percent', completed_combinations * 100 // total_combinations)
-                                            combination_info = f"({completed_combinations + 1}/{total_combinations} - {progress_percentage}%)"
-                                        
-                                        # Calculate estimated time remaining
-                                        if completed_combinations > 0:
-                                            velocity = completed_combinations / max(elapsed_minutes, 0.1)
-                                            remaining_combinations = total_combinations - completed_combinations
-                                            estimated_remaining_minutes = remaining_combinations / max(velocity, 0.01)
-                                            
-                                            if estimated_remaining_minutes < 1:
-                                                time_remaining = "< 1 min"
-                                            elif estimated_remaining_minutes < 60:
-                                                time_remaining = f"{int(estimated_remaining_minutes)} min"
-                                            else:
-                                                hours = int(estimated_remaining_minutes // 60)
-                                                minutes = int(estimated_remaining_minutes % 60)
-                                                time_remaining = f"{hours}h {minutes}m"
-                                        else:
-                                            time_remaining = "calculating..."
-                                        
-                                        current_message = f"Processing {progress_data['model']} with {progress_data['framework']} {combination_info} • ETA: {time_remaining}"
-                                        
-                                        # Track current calls with enhanced info
-                                        current_calls = self.execution_status[execution_id].get("current_calls", [])
-                                        
-                                        # For parallel execution, manage active calls differently
-                                        combination_call = {
-                                            "combination_id": progress_data.get("combination_id", f"combo_{len(current_calls)}"),
-                                            "model": progress_data["model"],
-                                            "framework": progress_data["framework"],
-                                            "domain": progress_data.get("domain", "Unknown"),
-                                            "provider": progress_data.get("provider", "Unknown"),
-                                            "status": "processing",
-                                            "start_time": current_time.isoformat(),
-                                            "is_parallel": progress_data["type"] == "combination_start_parallel"
-                                        }
-                                        
-                                        # Add to active calls
-                                        current_calls.append(combination_call)
-                                        
-                                        # For parallel execution, keep more active calls visible
-                                        max_visible_calls = 8 if progress_data["type"] == "combination_start_parallel" else 5
-                                        
-                                        self.execution_status[execution_id].update({
-                                            "progress": 10 + int((completed_combinations / total_combinations) * 80),
-                                            "message": current_message,
-                                            "current_calls": current_calls[-max_visible_calls:],  # Keep recent calls for display
-                                            "active_parallel_calls": [call for call in current_calls if call["status"] == "processing"] if progress_data["type"] == "combination_start_parallel" else []
-                                        })
-                                        
-                                    elif progress_data["type"] in ["combination_complete", "combination_complete_parallel"]:
-                                        completed_combinations += 1
-                                        
-                                        # Update the call status - find by combination_id for parallel, or use last for sequential
-                                        current_calls = self.execution_status[execution_id].get("current_calls", [])
-                                        success = progress_data.get("success", True)
-                                        
-                                        if progress_data["type"] == "combination_complete_parallel" and "combination_id" in progress_data:
-                                            # Find the specific combination call to update
-                                            for call in current_calls:
-                                                if call.get("combination_id") == progress_data["combination_id"]:
-                                                    call["status"] = "completed" if success else "error"
-                                                    call["end_time"] = datetime.now().isoformat()
-                                                    if not success:
-                                                        call["error"] = progress_data.get("error", "Unknown error")
-                                                    if "response_length" in progress_data:
-                                                        call["response_length"] = progress_data["response_length"]
-                                                    break
-                                        else:
-                                            # Sequential execution - update the last call
-                                            if current_calls:
-                                                current_calls[-1]["status"] = "completed" if success else "error"
-                                                current_calls[-1]["end_time"] = datetime.now().isoformat()
-                                                if not success:
-                                                    current_calls[-1]["error"] = progress_data.get("error", "Unknown error")
-                                                if "response_length" in progress_data:
-                                                    current_calls[-1]["response_length"] = progress_data["response_length"]
-                                        
-                                        completion_percentage = int((completed_combinations / total_combinations) * 100)
-                                        
-                                        # Calculate elapsed time for this combination
-                                        current_time = datetime.now()
-                                        start_time = datetime.fromisoformat(self.execution_status[execution_id]["start_time"])
-                                        elapsed_minutes = (current_time - start_time).total_seconds() / 60
-                                        
-                                        if elapsed_minutes < 1:
-                                            elapsed_time = f"{int(elapsed_minutes * 60)}s"
-                                        elif elapsed_minutes < 60:
-                                            elapsed_time = f"{int(elapsed_minutes)}m"
-                                        else:
-                                            hours = int(elapsed_minutes // 60)
-                                            minutes = int(elapsed_minutes % 60)
-                                            elapsed_time = f"{hours}h {minutes}m"
-                                        
-                                        completion_message = f"Completed {completed_combinations}/{total_combinations} LLM calls ({completion_percentage}%) • Elapsed: {elapsed_time}"
-                                        if not success:
-                                            completion_message += f" (Call failed: {progress_data.get('error', 'Unknown error')})"
-                                        
-                                        # Update active parallel calls list
-                                        active_parallel_calls = [call for call in current_calls if call["status"] == "processing"]
-                                        
-                                        self.execution_status[execution_id].update({
-                                            "progress": 10 + int((completed_combinations / total_combinations) * 80),
-                                            "message": completion_message,
-                                            "completed_combinations": completed_combinations,
-                                            "current_calls": current_calls,
-                                            "active_parallel_calls": active_parallel_calls
-                                        })
-                                        
                                 except json.JSONDecodeError as e:
                                     self.logger.warning(f"Failed to parse JSON progress: {e}")
                                     consecutive_errors += 1

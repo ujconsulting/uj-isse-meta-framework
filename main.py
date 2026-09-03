@@ -243,6 +243,12 @@ class ParallelExecutionEngine:
                 "combination_id": combo_id,
                 "model": model_display_name,
                 "framework": template.name if template else combination["template"],
+                # The names above are for a person to read. The ids are what the
+                # web UI matches its indicators on — without them it has to guess
+                # from the visible label, which is why it used to light up every
+                # model of a house whenever one of them was called.
+                "model_id": combination["model"],
+                "framework_id": combination["template"],
                 "domain": domain_name,
                 "provider": provider,
                 "progress_percent": int((self.completed_count + self.failed_count + 1) / self.total_combinations * 100),
@@ -1270,13 +1276,15 @@ class ISEEApplication:
                         "combination_id": combo["id"],
                         "model": model_display_name,
                         "framework": template.name if template else combo["template"],
+                        "model_id": combo["model"],
+                        "framework_id": combo["template"],
                         "domain": domain.name if domain else combo["domain"],
                         "progress_percent": int((i / len(combinations)) * 100),
                         "timestamp": datetime.now().isoformat()
                     }
                     print(f"PROGRESS_JSON:{json.dumps(progress_info)}")
                     sys.stdout.flush()  # Force immediate output for Web UI monitoring
-                
+
                 # Enhanced execution line with query details if requested
                 if show_all_queries:
                     print(f"Executing combination {i}/{len(combinations)}: {combo['id']}")

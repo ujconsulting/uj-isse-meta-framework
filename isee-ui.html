@@ -2557,6 +2557,10 @@
                     // The run payload identifies frameworks by display name, so keep it
                     // on the element rather than deriving it again at submit time.
                     indicator.setAttribute('data-framework', framework.name.split(' - ')[0]);
+                    // The run payload names frameworks by display name, the progress
+                    // stream identifies them by template id. Carry both so live
+                    // illumination can match exactly instead of by substring.
+                    indicator.setAttribute('data-framework-id', framework.id);
                     indicator.setAttribute('role', 'checkbox');
                     indicator.setAttribute('aria-checked', 'true');
                     indicator.setAttribute('tabindex', '0');
@@ -3040,9 +3044,85 @@
             setTimeout(processNextStep, 500);
         }
 
-        // Track illuminated combinations to prevent duplicates
+        /* ---------------------------------------------------------------------------
+           Live illumination of the model / framework / domain tiles.
+           ---------------------------------------------------------------------------
+           What lights up is derived from the run's status on every poll, never
+           accumulated. The previous version cleared every indicator and then re-lit
+           only the combinations it had not seen before — so a call that was still in
+           flight went dark the moment a newer one appeared, and never came back. On a
+           66-call parallel run that meant the display showed a shrinking, arbitrary
+           subset of what was actually running.
+
+           `illuminatedCombinations` survives only as an animation ledger: it decides
+           whether a combination still gets its one-time entry glow. Nothing about
+           *correctness* depends on it.
+           --------------------------------------------------------------------------- */
         let illuminatedCombinations = new Set();
-        
+
+        function normalizeLabel(text) {
+            return (text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        }
+
+        function activeCallsFrom(status) {
+            if (status.active_parallel_calls && status.active_parallel_calls.length > 0) {
+                return status.active_parallel_calls;
+            }
+            return (status.current_calls || []).filter(call => call.status === 'processing');
+        }
+
+        function markIndicator(selector, idAttribute, id, label, combinationId) {
+            const wanted = normalizeLabel(label);
+            document.querySelectorAll(selector).forEach(indicator => {
+                const indicatorId = idAttribute ? indicator.getAttribute(idAttribute) : null;
+                // Prefer the stable id the backend now sends. The label comparison is
+                // the fallback, and it is an equality test: the old code matched on a
+                // shared keyword ("claude", "gpt", "llama", …), so calling one model of
+                // a house lit up every model of that house.
+                const isMatch = (id && indicatorId)
+                    ? indicatorId === id
+                    : (wanted !== '' && normalizeLabel(indicator.textContent) === wanted);
+
+                if (isMatch) {
+                    indicator.classList.add('active');
+                    indicator.setAttribute('data-combination-id', combinationId || 'unknown');
+                }
+            });
+        }
+
+        function syncCombinationIllumination(status) {
+            const active = activeCallsFrom(status);
+
+            // A domain tile has to exist before it can be lit; domains are generated
+            // per run, so the grid may not know this one yet.
+            active.forEach(call => {
+                if (call.domain) {
+                    ensureDomainIndicatorExists(call.domain);
+                }
+            });
+
+            resetActiveIndicators();
+
+            active.forEach(call => {
+                markIndicator('.model-indicator', 'data-model',
+                              call.model_id, call.model, call.combination_id);
+                markIndicator('.framework-indicator', 'data-framework-id',
+                              call.framework_id, call.framework, call.combination_id);
+                markIndicator('.domain-indicator', null,
+                              null, call.domain, call.combination_id);
+
+                if (call.combination_id && !illuminatedCombinations.has(call.combination_id)) {
+                    illuminatedCombinations.add(call.combination_id);
+                    addCombinationConnection(call.combination_id);
+                }
+            });
+
+            updateCombinationCounter(active.length,
+                                     status.completed_combinations || 0,
+                                     status.total_combinations || 0);
+        }
+
+
         function updateProgressUI(status) {
             // Update progress bar
             const progressBar = document.getElementById('progressBar');
@@ -3052,49 +3132,7 @@
             document.getElementById('progressTitle').textContent = extractProgressTitle(status.message);
             document.getElementById('progressSubtitle').textContent = extractProgressSubtitle(status);
 
-            // Enhanced combinatorial visualization for parallel execution
-            if (status.active_parallel_calls && status.active_parallel_calls.length > 0) {
-                // Clear all indicators first ONLY if we have new combinations
-                const currentCombinations = new Set(status.active_parallel_calls.map(call => call.combination_id));
-                const hasNewCombinations = Array.from(currentCombinations).some(id => !illuminatedCombinations.has(id));
-                
-                if (hasNewCombinations) {
-                    resetActiveIndicators();
-                    
-                    // Light up all active combinations simultaneously (avoiding duplicates)
-                    status.active_parallel_calls.forEach((call, index) => {
-                        if (!illuminatedCombinations.has(call.combination_id)) {
-                            illuminatedCombinations.add(call.combination_id);
-                            
-                            const delay = index * 100; // Stagger the animations for visual appeal
-                            setTimeout(() => {
-                                updateCombinationIndicators(call.model, call.framework, call.domain, 'active', call.combination_id);
-                            }, delay);
-                        } else {
-                            console.log(`⏭️  Skipping duplicate: ${call.combination_id} (already illuminated)`);
-                        }
-                    });
-                }
-                
-                // Update combination counter
-                updateCombinationCounter(status.active_parallel_calls.length, status.completed_combinations, status.total_combinations);
-                
-            } else if (status.current_calls) {
-                // Fallback to current calls for sequential or mixed execution
-                const currentCombinations = new Set(status.current_calls.map(call => call.combination_id));
-                const hasNewCombinations = Array.from(currentCombinations).some(id => !illuminatedCombinations.has(id));
-                
-                if (hasNewCombinations) {
-                    resetActiveIndicators();
-                    
-                    status.current_calls.forEach(call => {
-                        if (!illuminatedCombinations.has(call.combination_id)) {
-                            illuminatedCombinations.add(call.combination_id);
-                            updateCombinationIndicators(call.model, call.framework, call.domain, 'active', call.combination_id);
-                        }
-                    });
-                }
-            }
+            syncCombinationIllumination(status);
 
             // Update live API calls display
             updateLiveCallsDisplay(status);
@@ -3273,169 +3311,15 @@
 
         // Enhanced Combinatorial Visualization Functions
         function resetActiveIndicators() {
-            // Clear all active states from indicators
-            document.querySelectorAll('.model-indicator').forEach(indicator => {
+            // Clear all active states from indicators. The inline box-shadow has to
+            // go with them: `addCombinationConnection` sets it directly on the
+            // element, and without clearing it here a tile keeps glowing long after
+            // its call has finished.
+            const selectors = '.model-indicator, .framework-indicator, .domain-indicator';
+            document.querySelectorAll(selectors).forEach(indicator => {
                 indicator.classList.remove('active');
                 indicator.removeAttribute('data-combination-id');
-            });
-            
-            document.querySelectorAll('.framework-indicator').forEach(indicator => {
-                indicator.classList.remove('active');
-                indicator.removeAttribute('data-combination-id');
-            });
-            
-            document.querySelectorAll('.domain-indicator').forEach(indicator => {
-                indicator.classList.remove('active');
-                indicator.removeAttribute('data-combination-id');
-            });
-        }
-
-        function updateCombinationIndicators(modelName, frameworkName, domainName, state, combinationId) {
-            // Debug logging for visual illumination tracking
-            if (state === 'active') {
-                console.log(`🔥 Illuminating: Model="${modelName}", Framework="${frameworkName}", Domain="${domainName}", ID="${combinationId}"`);
-            }
-            
-            // Update model indicator
-            updateModelIndicatorEnhanced(modelName, state, combinationId);
-            
-            // Update framework indicator
-            updateFrameworkIndicatorEnhanced(frameworkName, state, combinationId);
-            
-            // Ensure domain exists and update
-            if (domainName) {
-                ensureDomainIndicatorExists(domainName);
-                updateDomainIndicatorEnhanced(domainName, state, combinationId);
-            }
-            
-            // Add combination connection visualization
-            if (state === 'active' && combinationId) {
-                addCombinationConnection(combinationId);
-            }
-        }
-
-        function updateModelIndicatorEnhanced(modelName, state, combinationId) {
-            const indicators = document.querySelectorAll('.model-indicator');
-            
-            // Enhanced model name matching with better normalization
-            function normalizeModelName(name) {
-                return name.toLowerCase()
-                    .replace(/\s+/g, ' ')
-                    .replace(/[^a-z0-9\s]/g, '')
-                    .trim();
-            }
-            
-            const normalizedSearchName = normalizeModelName(modelName);
-            
-            // Find and update the matching model indicator
-            indicators.forEach(indicator => {
-                const indicatorText = indicator.textContent.trim();
-                const normalizedIndicatorName = normalizeModelName(indicatorText);
-                
-                // Try multiple matching strategies
-                const isMatch = 
-                    // Exact match after normalization
-                    normalizedIndicatorName === normalizedSearchName ||
-                    // Contains match (both directions)
-                    normalizedIndicatorName.includes(normalizedSearchName) ||
-                    normalizedSearchName.includes(normalizedIndicatorName) ||
-                    // Key word matching for complex names
-                    modelName.toLowerCase().includes('claude') && indicatorText.toLowerCase().includes('claude') ||
-                    modelName.toLowerCase().includes('gpt') && indicatorText.toLowerCase().includes('gpt') ||
-                    modelName.toLowerCase().includes('gemini') && indicatorText.toLowerCase().includes('gemini') ||
-                    modelName.toLowerCase().includes('llama') && indicatorText.toLowerCase().includes('llama') ||
-                    modelName.toLowerCase().includes('mixtral') && indicatorText.toLowerCase().includes('mixtral') ||
-                    modelName.toLowerCase().includes('grok') && indicatorText.toLowerCase().includes('grok') ||
-                    modelName.toLowerCase().includes('deepseek') && indicatorText.toLowerCase().includes('deepseek') ||
-                    modelName.toLowerCase().includes('qwen') && indicatorText.toLowerCase().includes('qwen') ||
-                    modelName.toLowerCase().includes('perplexity') && indicatorText.toLowerCase().includes('perplexity') ||
-                    modelName.toLowerCase().includes('openai') && indicatorText.toLowerCase().includes('openai');
-                
-                if (isMatch) {
-                    if (state === 'active') {
-                        console.log(`✅ Model match: "${modelName}" → "${indicatorText}"`);
-                        indicator.classList.add('active');
-                        indicator.setAttribute('data-combination-id', combinationId || 'unknown');
-                    } else if (state === 'completed') {
-                        indicator.classList.remove('active');
-                        indicator.classList.add('completed');
-                    }
-                }
-            });
-        }
-
-        function updateFrameworkIndicatorEnhanced(frameworkName, state, combinationId) {
-            const frameworkIndicators = document.querySelectorAll('.framework-indicator');
-            
-            // Enhanced framework name matching with aliases and ID mapping
-            const frameworkAliases = {
-                // Full names to short names
-                'Future-Oriented Framework': 'Futurist',
-                'Futurist': 'Future-Oriented Framework',
-                'Analytical Framework': 'Analytical',
-                'Creative Framework': 'Creative',
-                'Critical Framework': 'Critical',
-                'Integrative Framework': 'Integrative',
-                'Pragmatic Framework': 'Pragmatic',
-                'First Principles Framework': 'First Principles',
-                'Systems Framework': 'Systems',
-                'Contrarian Framework': 'Contrarian',
-                'Historical Framework': 'Historical',
-                'Disruption Framework': 'Disruption',
-                
-                // ID format to full names (handling backend fallbacks)
-                'ins_analytical': 'Analytical',
-                'ins_creative': 'Creative',
-                'ins_critical': 'Critical',
-                'ins_integrative': 'Integrative',
-                'ins_pragmatic': 'Pragmatic',
-                'ins_first_principles': 'First Principles',
-                'ins_systems': 'Systems',
-                'ins_contrarian': 'Contrarian',
-                'ins_historical': 'Historical',
-                'ins_futurist': 'Futurist',
-                'ins_disruption': 'Disruption'
-            };
-            
-            frameworkIndicators.forEach(indicator => {
-                const indicatorText = indicator.textContent.trim();
-                const nameToMatch = frameworkAliases[frameworkName] || frameworkName;
-                const aliasToMatch = frameworkAliases[indicatorText] || indicatorText;
-                
-                if (indicatorText.toLowerCase().includes(frameworkName.toLowerCase()) ||
-                    frameworkName.toLowerCase().includes(indicatorText.toLowerCase()) ||
-                    nameToMatch.toLowerCase().includes(indicatorText.toLowerCase()) ||
-                    aliasToMatch.toLowerCase().includes(frameworkName.toLowerCase())) {
-                    
-                    if (state === 'active') {
-                        console.log(`✅ Framework match: "${frameworkName}" → "${indicatorText}"`);
-                        indicator.classList.add('active');
-                        indicator.setAttribute('data-combination-id', combinationId || 'unknown');
-                    } else if (state === 'completed') {
-                        indicator.classList.remove('active');
-                        indicator.classList.add('completed');
-                    }
-                }
-            });
-        }
-
-        function updateDomainIndicatorEnhanced(domainName, state, combinationId) {
-            const domainIndicators = document.querySelectorAll('.domain-indicator');
-            
-            // Find and update the matching domain indicator
-            domainIndicators.forEach(indicator => {
-                const name = indicator.textContent;
-                if (name.toLowerCase().includes(domainName.toLowerCase()) || 
-                    domainName.toLowerCase().includes(name.toLowerCase())) {
-                    
-                    if (state === 'active') {
-                        indicator.classList.add('active');
-                        indicator.setAttribute('data-combination-id', combinationId || 'unknown');
-                    } else if (state === 'completed') {
-                        indicator.classList.remove('active');
-                        indicator.classList.add('completed');
-                    }
-                }
+                indicator.style.boxShadow = '';
             });
         }
 
