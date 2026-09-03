@@ -7,6 +7,11 @@ erledigt. Was erledigt ist, steht in den Commit-Nachrichten und in
 
 Reihenfolge = grobe Priorität, nicht Aufwand.
 
+> **Nachtrag 03.09.2026** — Route A, Punkt 1 ist erledigt (`837c01f`), fiel dabei aber
+> deutlich größer aus als hier beschrieben, und die Beschreibung selbst war teilweise
+> falsch. Einzelheiten am Tabelleneintrag. Neue Funde aus derselben Sitzung stehen unter
+> 2.5–2.7.
+
 ---
 
 ## 1. Ausdrücklich gewünscht, noch nicht gebaut
@@ -80,6 +85,38 @@ OpenRouter-Portfolio ruft trotzdem OpenRouter.
 Aktuell eingedämmt (`B5`): `globant` und `hybrid` brechen ohne echte Zugangsdaten mit
 Exit 2 ab. Die eigentliche Reparatur — Ausführung über `ProviderManager` routen — ist ein
 Refactoring und gehört zu Punkt 5.1.
+
+### 2.5 Die Oberfläche bietet nur 8 der 14 Modelle an
+*(gefunden 03.09.2026)* `loadModels()` ruft `/api/models?strategic_only=true` auf und
+bekommt 8 Einträge; ohne den Parameter liefert dieselbe Route alle 14. Die Modellauswahl,
+die im Auswahl-Commit gebaut wurde, kann also über sechs Modelle gar nicht verfügen —
+darunter Mistral, Nemotron, MiniMax, Solar und Hunyuan.
+
+**Zu entscheiden:** bewusste Kuratierung (dann gehört ein Hinweis in die Oberfläche) oder
+Rest einer früheren Vereinfachung (dann alle 14 anbieten und `strategic_only` als
+Vorauswahl statt als Filter verwenden).
+
+### 2.6 Kostenbericht liest keine Markdown-Läufe
+*(gefunden 03.09.2026)* `run_cost_report.py <lauf>` erwartet `isee_result.json`. Die
+Weboberfläche startet aber immer mit `--output-format markdown`, also entsteht nur
+`isee_result.md` — für genau die Läufe, die über die Oberfläche entstehen, ist der
+Nachrechner damit nicht benutzbar. `FileNotFoundError`, nicht abgefangen.
+
+Die Zahlen selbst gehen nicht verloren: `main.py` druckt den Bericht am Ende jedes Laufs,
+er landet über den Unterprozess in `dev-server.log`. Er erscheint nur **nirgends in der
+Oberfläche** — der Wunsch nach sauber ausgewiesenen Kosten ist damit erst halb erfüllt.
+
+### 2.7 Zwei API-Pfade ohne Zeitlimit
+*(gefunden 03.09.2026)* `model_api_integration.py:241` und `:315` rufen `requests.post`
+**ohne** `timeout`. Die übrigen vier Aufrufe haben eines (120 s bzw. 30 s). Betrifft
+derzeit nicht den OpenRouter-Pfad, aber ein Aufruf ohne Zeitlimit hängt unbegrenzt und
+nimmt den ganzen Lauf mit.
+
+Beobachtet am selben Tag, wenn auch auf dem Pfad *mit* Zeitlimit: ein Aufruf an GLM 5.3
+Flash brauchte **278 Sekunden** und wurde als Versuch 1 erfolgreich beendet — das
+`timeout=120` hat dort also nicht gegriffen (vermutlich Lesezeitlimit je Paket, nicht für
+die Gesamtdauer). Ein Volllauf kann damit an einem einzigen langsamen Modell hängen, ohne
+dass die Oberfläche erklärt, worauf gewartet wird.
 
 ---
 
@@ -176,7 +213,7 @@ dem Original als Referenz.
 
 | # | Upstream-Phase | Übertragbar? | Was es für uns heißt | Zustand heute |
 | --- | --- | --- | --- | --- |
-| 1 | Visualisierungs-Bug | **ja, unverändert** | `illuminatedCombinations` wird zwischen Läufen nie zurückgesetzt; Rahmen-Namen werden über 8 Fallback-Strategien gematcht; Wettlauf zwischen `current_calls` und `active_parallel_calls`. Providerunabhängig, kleinster Einstieg. | offen |
+| 1 | Visualisierungs-Bug | **ja, war aber falsch beschrieben** | s. Korrektur unter der Tabelle | **erledigt** (`837c01f`) |
 | 2 | Provider-Konsolidierung | **spiegelverkehrt** | Upstream konsolidiert auf Globant. Bei uns die Gegenrichtung: **auf OpenRouter konsolidieren**, Globant-Pfade und `hybrid` entfernen. Dieselbe Vereinfachung, andere Richtung. | eingedämmt (Exit 2), nicht entfernt — s. 2.4 |
 | 3 | `isee_engine.py` extrahieren | **ja** | Kernlogik aus `main.py` in ein importierbares Modul. Voraussetzung für #4. | offen |
 | 4 | Subprozess-Muster entfernen | **ja — größter Gewinn** | `app.py` importiert die Engine direkt, statt `main.py` zu starten und stdout zu parsen. Entfernt die Parameter-Übersetzungsschicht, an der diese Sitzung mehrfach hing (Ausgabeformat, Unicode über die Pipe, verschluckte Fortschrittsblöcke). | offen |
@@ -187,6 +224,47 @@ dem Original als Referenz.
 
 **Reihenfolge:** 1 → 3 → 4 → 2 → 5. Punkt 1 ist unabhängig und erprobt den Ablauf;
 3 muss vor 4 liegen; 2 ist am saubersten, wenn die Subprozess-Naht weg ist.
+
+#### Korrektur zu Punkt 1 (03.09.2026)
+
+Die Beschreibung oben stammte aus dem Refactoring-Plan des Originals und wurde **nicht
+gegen unseren Baum geprüft**. Der erste Vorwurf war schlicht falsch:
+`illuminatedCombinations` **wird** zwischen Läufen zurückgesetzt, in `startAnalysis()`
+(`isee-ui.html`), und zwar seit Upstream-Commit `0174724` vom 18.08.2025.
+
+Beim Nachmessen kam Schwerwiegenderes zum Vorschein — der Live-Fortschritt der
+Weboberfläche war nicht ungenau, sondern **vollständig tot**:
+
+- `main.py` meldet den Parallellauf als `parallel_execution_start`, `app.py` horchte nur
+  auf `execution_start`. `total_combinations` blieb 0, und die Folgezeile berechnete den
+  `.get()`-Vorgabewert `completed * 100 // total` — den Python **eifrig** auswertet. Jedes
+  `combination_start_parallel` warf also ZeroDivisionError in einen Handler, der auf
+  Debug-Ebene protokolliert. Gemessen: ein 12-Ereignis-Strom durch den alten Monitor
+  hinterlässt **0 erfasste Aufrufe**; nur die Schlussbilanz kam durch.
+- `combination_failed_parallel` hatte gar keinen Handler.
+- Die Aufrufliste wurde auf 8 Einträge gekürzt, während Abschlüsse in genau dieser Liste
+  per `combination_id` gesucht wurden — bei 66 Aufrufen fand die Mehrzahl nichts.
+- Ein Abschluss ohne Kennung wurde dem zuletzt *gestarteten* Aufruf zugeschrieben.
+- Im Browser wurde die Beleuchtung akkumuliert statt abgeleitet: laufende Aufrufe gingen
+  aus, sobald ein neuer dazukam.
+- Die Modell-Zuordnung lief über eine Schlüsselwort-Leiter (`claude`, `gpt`, `llama`, …),
+  die bei mehreren Modellen eines Hauses alle davon gleichzeitig erleuchtet hätte.
+
+Zusätzlich fiel dabei eine **Regression aus dem Auswahl-Commit `759b8ea`** auf: die
+Entscheidung „validierte `--domain` oder freie `--dynamic-domain`" hing am Flag
+`strategic_models`, das die Oberfläche seit der Modellauswahl auf `false` setzt. Die von
+`/api/suggest-domains` erzeugten Domänennamen gingen dadurch als zu validierende Namen
+raus, der Motor wies den ersten zurück, und der Lauf starb **vor dem ersten Modellaufruf**
+— während die Oberfläche „completed" meldete. Beides behoben; Exitcode 1 allein
+unterscheidet nicht zwischen „einige Aufrufe fehlgeschlagen" und „beim Start abgestürzt",
+das Fehlen eines angekündigten Laufs schon.
+
+Die Ereignisverarbeitung liegt jetzt in `_apply_progress_event` statt in der Leseschleife.
+Das ist zugleich die Naht, die Punkt 4 braucht — dort wechselt nur der *Erzeuger* der
+Ereignisse, nicht deren Verarbeitung.
+
+**Lehre für die restlichen Punkte dieser Tabelle:** Upstreams Beschreibungen sind Hinweise,
+keine Befunde. Vor jedem weiteren Punkt am eigenen Baum nachmessen.
 
 ⚠️ Der Refactoring-Plan des Originals überzeichnet sein Ergebnis: Er behauptet −48 % und
 „~2.500 Zeilen entfernt"; gemessen ist der Kern **104 Zeilen größer** (12.465 → 12.569).
