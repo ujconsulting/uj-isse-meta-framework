@@ -2309,19 +2309,18 @@ def api_download_zip(execution_id):
         # If we have the results file, use its parent directory
         run_directory = Path(results_file).parent
     else:
-        # Search for recent run directories that might contain the results
-        output_dir = Path("data/output")
-        if output_dir.exists():
-            # Get all run directories sorted by modification time (newest first)
-            run_dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith('run_')]
-            run_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            
-            # Look for directories with content in the most recent run directories
-            for run_dir in run_dirs[:10]:  # Check last 10 runs
-                if any(run_dir.iterdir()):  # Directory has files
-                    run_directory = run_dir
-                    demo.logger.info(f"Found run directory for execution {execution_id} in {run_dir}")
-                    break
+        # No fallback to "the newest run that has files in it".
+        #
+        # This used to walk data/output and return the most recent non-empty run
+        # whenever the id could not be resolved. Confirmed on 05.09.2026: an invented
+        # id returned 160,854 bytes of a real run's ZIP with HTTP 200.
+        #
+        # The security reading is the smaller one. On a single-user machine it means
+        # "download my results" can hand back a DIFFERENT run's results, silently,
+        # and a researcher comparing two runs cannot tell. The case it was written
+        # for is real -- run status lives in a per-process dict and a server restart
+        # loses it -- but the answer to an unresolvable id is to say so.
+        run_directory = None
     
     if not run_directory or not run_directory.exists():
         return jsonify({"error": "Run directory not found"}), 404
@@ -2387,21 +2386,10 @@ def api_view_markdown(execution_id):
         if potential_path.exists():
             results_file = str(potential_path)
         else:
-            # Search for recent run directories that might contain the results
-            # Since execution_id format is exec_{timestamp} but directories are run_{formatted_timestamp}
-            output_dir = Path("data/output")
-            if output_dir.exists():
-                # Get all run directories sorted by modification time (newest first)
-                run_dirs = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith('run_')]
-                run_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-                
-                # Look for markdown files in the most recent run directories
-                for run_dir in run_dirs[:10]:  # Check last 10 runs
-                    potential_md = run_dir / "isee_result.md"
-                    if potential_md.exists():
-                        results_file = str(potential_md)
-                        demo.logger.info(f"Found results file for execution {execution_id} in {run_dir}")
-                        break
+            # Same reasoning as /api/download-zip above: an unresolvable id is
+            # answered as unresolvable, never with whichever run happens to be
+            # newest. Confirmed returning 19,400 bytes of an unrelated run.
+            results_file = None
     
     # User Behavior Analytics - Track markdown viewing
     user_session = session.get('session_id', 'anonymous')
@@ -2434,11 +2422,19 @@ def api_query_details(execution_id):
         output_dir = Path(f"data/output")
         
         # Look for query details CSV files in the execution directory or output directory
+        # Only patterns that actually contain the execution id.
+        #
+        # Two of the four did not: `data/output/run_*/queries_detailed_*.csv` matches
+        # every run, and `data/output/queries_detailed_*.csv` matches every file. With
+        # `max(..., key=mtime)` on top, an unknown id returned the newest query CSV of
+        # whatever run happened to be latest. Confirmed on 05.09.2026: an invented id
+        # returned 13,156 bytes belonging to a different run, HTTP 200.
+        #
+        # The two that remain both name the id: callers pass a run id as the
+        # execution id, and some layouts put the CSV beside the run directory.
         possible_patterns = [
             f"data/output/{execution_id}/queries_detailed_*.csv",
-            f"data/output/run_*/queries_detailed_*.csv",  # Search in run directories
             f"data/output/queries_detailed_*{execution_id}*.csv",
-            f"data/output/queries_detailed_*.csv"  # Fallback to any recent file
         ]
         
         csv_file = None
