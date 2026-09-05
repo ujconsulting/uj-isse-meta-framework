@@ -7,8 +7,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PID_FILE="$PROJECT_DIR/.dev-server.pid"
-LOG_FILE="$PROJECT_DIR/dev-server.log"
+# Runtime files live in a subdirectory, not in the repository root.
+#
+# A FileSystemWatcher across this whole project tree reports every new file that
+# appears in any repository root and notifies the owner. Both of these are created
+# on every `dev-server.sh start`, so each start cost a false-alarm check even though
+# both are gitignored -- gitignore governs what git tracks, not what the watcher
+# sees. The rule is in D:\Dokumente\Projekte\CLAUDE.md.
+RUNTIME_DIR="$PROJECT_DIR/.dev-server"
+mkdir -p "$RUNTIME_DIR"
+PID_FILE="$RUNTIME_DIR/server.pid"
+LOG_FILE="$RUNTIME_DIR/server.log"
 PORT=5001
 
 # Colors for output
