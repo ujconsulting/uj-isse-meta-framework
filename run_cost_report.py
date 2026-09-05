@@ -77,6 +77,23 @@ def summarise(results: Dict[str, Any], config_path: str = CONFIG_PATH) -> Dict[s
     unpriced: List[str] = []
     no_usage = 0
 
+    # How many attempts the run really made, against how many combinations it was
+    # asked for. main.py retries a combination up to three times, and the estimate
+    # shown before a run priced one attempt each -- so it announced a lower bound as
+    # if it were the total. The attempt count has been on every result since
+    # `8137f49`; recording it here is what lets the estimate use it later.
+    #
+    # Counted over ALL results, including failed ones: a combination that failed
+    # three times cost three attempts, and leaving it out would understate exactly
+    # the runs where retries mattered most.
+    total_attempts = 0
+    combinations = 0
+    for result in results.values():
+        if not isinstance(result, dict):
+            continue
+        combinations += 1
+        total_attempts += result.get("attempts") or 1
+
     for result in results.values():
         if not isinstance(result, dict) or result.get("status") == "failed":
             continue
@@ -132,6 +149,8 @@ def summarise(results: Dict[str, Any], config_path: str = CONFIG_PATH) -> Dict[s
         "per_house": per_house,
         "total_cost_usd": total,
         "priced_calls": sum(r["calls"] for r in per_model.values() if r["priced"]),
+        "combinations": combinations,
+        "total_attempts": total_attempts,
         "unpriced_models": unpriced,
         "calls_without_usage": no_usage,
     }

@@ -92,3 +92,123 @@ class TestTheEstimateUsesIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestBothOutputLayoutsAreCounted(unittest.TestCase):
+    """A run started at the command line must count towards the measurement.
+
+    The search globbed `run_*/cost_report.json` directly under data/output, which is
+    where the WEB interface puts a run. main.py's own constructor writes to
+    data/output/YYYY-MM/weekN/run_TIMESTAMP, so every command-line run was invisible
+    to a figure whose whole purpose is to correct itself from real runs.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, relative, calls, completion_tokens):
+        directory = os.path.join(self.root, *relative.split("/"))
+        os.makedirs(directory, exist_ok=True)
+        with io.open(os.path.join(directory, "cost_report.json"), "w",
+                     encoding="utf-8") as handle:
+            json.dump({"per_model": {"m": {"calls": calls,
+                                           "completion_tokens": completion_tokens}}},
+                      handle)
+
+    def test_a_nested_run_is_measured(self):
+        self.write("2026-09/week1/run_20260905_120000", 30, 60000)
+
+        self.assertEqual(
+            ISEEGuardrails.measured_response_tokens(self.root), 2000,
+            "a command-line run did not reach the measurement")
+
+    def test_both_layouts_are_averaged_together(self):
+        self.write("run_20260905_120000", 30, 30000)                 # web, 1000
+        self.write("2026-09/week1/run_20260905_130000", 30, 90000)   # CLI, 3000
+
+        self.assertEqual(ISEEGuardrails.measured_response_tokens(self.root), 2000)
+
+    def test_recency_is_decided_by_the_run_name_not_the_path(self):
+        """Otherwise "the last N runs" sorts by directory prefix, not by time."""
+        original = ISEEGuardrails.MEASURED_TOKENS_RUNS
+        ISEEGuardrails.MEASURED_TOKENS_RUNS = 1
+        try:
+            self.write("run_20260905_120000", 30, 30000)               # older, flat
+            self.write("2026-09/week1/run_20260905_130000", 30, 90000)  # newer, nested
+            self.assertEqual(
+                ISEEGuardrails.measured_response_tokens(self.root), 3000,
+                "the newer nested run was not treated as the more recent one")
+        finally:
+            ISEEGuardrails.MEASURED_TOKENS_RUNS = original
+
+
+class TestRetriesAreCounted(unittest.TestCase):
+    """A combination is not one call.
+
+    main.py tries a combination up to three times. The estimate priced exactly one
+    attempt each, so it announced a lower bound as if it were the total — on the
+    number the guardrails then check their thresholds against. The attempt count has
+    been on every result since `8137f49`; the cost report now records the run's
+    totals so the estimate can use them.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, relative, combinations, total_attempts, extra=None):
+        directory = os.path.join(self.root, *relative.split("/"))
+        os.makedirs(directory, exist_ok=True)
+        payload = {"per_model": {}}
+        if combinations is not None:
+            payload["combinations"] = combinations
+        if total_attempts is not None:
+            payload["total_attempts"] = total_attempts
+        if extra:
+            payload.update(extra)
+        with io.open(os.path.join(directory, "cost_report.json"), "w",
+                     encoding="utf-8") as handle:
+            json.dump(payload, handle)
+
+    def test_nothing_on_record_returns_none(self):
+        self.assertIsNone(
+            ISEEGuardrails.measured_attempts_per_combination(self.root))
+
+    def test_a_clean_run_measures_one_attempt_each(self):
+        self.write("run_20260905_120000", combinations=30, total_attempts=30)
+
+        self.assertEqual(
+            ISEEGuardrails.measured_attempts_per_combination(self.root), 1.0)
+
+    def test_retries_raise_the_ratio(self):
+        self.write("run_20260905_120000", combinations=30, total_attempts=45)
+
+        self.assertEqual(
+            ISEEGuardrails.measured_attempts_per_combination(self.root), 1.5)
+
+    def test_an_older_report_without_the_fields_is_skipped_not_assumed(self):
+        """Assuming 1.0 would drag the ratio towards "no retries ever"."""
+        self.write("run_20260905_110000", combinations=None, total_attempts=None)
+        self.write("run_20260905_120000", combinations=30, total_attempts=60)
+
+        self.assertEqual(
+            ISEEGuardrails.measured_attempts_per_combination(self.root), 2.0)
+
+    def test_too_little_on_record_returns_none(self):
+        self.write("run_20260905_120000", combinations=5, total_attempts=15)
+
+        self.assertIsNone(
+            ISEEGuardrails.measured_attempts_per_combination(self.root),
+            "a ratio from five combinations is noise wearing a decimal point")
+
+    def test_a_nested_run_counts(self):
+        self.write("2026-09/week1/run_20260905_120000",
+                   combinations=30, total_attempts=45)
+
+        self.assertEqual(
+            ISEEGuardrails.measured_attempts_per_combination(self.root), 1.5)

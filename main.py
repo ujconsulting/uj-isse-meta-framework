@@ -2608,9 +2608,21 @@ class ISEEGuardrails:
         a self-correcting number that corrects itself from two data points is worse
         than an honest constant.
         """
-        import glob
-
-        reports = sorted(glob.glob(os.path.join(output_root, "run_*", "cost_report.json")))
+        # Both layouts, and sorted by the run's own name.
+        #
+        # This globbed `run_*/cost_report.json` directly under output_root, which is
+        # where the WEB interface puts a run. Every run started from the command
+        # line lands in data/output/YYYY-MM/weekN/ and was invisible to it -- so an
+        # estimate that exists to correct itself from real runs could never see half
+        # of them. Third place on this branch to make that assumption, and the first
+        # one I wrote myself.
+        #
+        # Sorting on the full path would order "2026-09/week1/run_X" and "run_Y" by
+        # their prefixes rather than by time; the run directory name carries the
+        # timestamp and is what "the last N runs" has to mean.
+        reports = sorted(
+            Path(output_root).rglob("run_*/cost_report.json"),
+            key=lambda p: p.parent.name)
         if not reports:
             return None
 
@@ -2631,6 +2643,45 @@ class ISEEGuardrails:
         if calls < ISEEGuardrails.MEASURED_TOKENS_MIN_CALLS:
             return None
         return completion_tokens / calls
+
+    @staticmethod
+    def measured_attempts_per_combination(
+            output_root: str = os.path.join("data", "output")):
+        """Attempts per combination, averaged over recent runs, or None.
+
+        A combination is tried up to three times, and the estimate priced exactly
+        one attempt each — announcing a lower bound as if it were the total. Every
+        result has carried its attempt count since `8137f49`; since this change the
+        cost report records the run's totals, so the estimate can correct itself the
+        same way it already does for response length.
+
+        Returns None while too little is on record, and the caller then prices one
+        attempt per combination and says so. A ratio derived from two runs would be
+        noise wearing a decimal point.
+        """
+        reports = sorted(
+            Path(output_root).rglob("run_*/cost_report.json"),
+            key=lambda p: p.parent.name)
+        if not reports:
+            return None
+
+        attempts = 0
+        combinations = 0
+        for path in reports[-ISEEGuardrails.MEASURED_TOKENS_RUNS:]:
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    report = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            # Older reports predate these fields. Skipped rather than assumed to be
+            # 1.0, which would drag the measured ratio towards "no retries ever".
+            if report.get("combinations") and report.get("total_attempts"):
+                attempts += report["total_attempts"]
+                combinations += report["combinations"]
+
+        if combinations < ISEEGuardrails.MEASURED_TOKENS_MIN_CALLS:
+            return None
+        return attempts / combinations
 
     @staticmethod
     def estimate_cost(combinations, has_api_key=True, config_path="openrouter_config.json"):
@@ -2672,7 +2723,12 @@ class ISEEGuardrails:
                 / 1_000_000
                 for p in priced
             ) / len(priced)
-            return combinations * per_call
+
+            # A combination is not one call. main.py retries up to three times, and
+            # this figure priced one attempt each -- a lower bound presented as the
+            # total, on the number the guardrails then check thresholds against.
+            attempts = ISEEGuardrails.measured_attempts_per_combination()
+            return combinations * per_call * (attempts or 1.0)
         except Exception as exc:
             print(f"⚠️  Falling back to a flat $0.08/combination estimate — could not read "
                   f"per-model pricing from {config_path} ({exc}). The figure below is a "
