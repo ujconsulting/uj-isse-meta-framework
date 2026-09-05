@@ -10,6 +10,7 @@ Part of the UX Enhancement Roadmap - Step 1.1: Cost and Time Estimation
 from typing import Dict, Any, List, Optional, Tuple, Union
 import math
 import json
+import re
 import logging
 import os
 from pathlib import Path
@@ -22,7 +23,16 @@ except ImportError:
     TIKTOKEN_AVAILABLE = False
 
 # Constants for cost estimation
-# Based on publicly available pricing as of May 2024, updated for 2025 models and dual provider support
+#
+# STATIC FALLBACK ONLY — not the source of truth. This comment used to claim "based on
+# publicly available pricing as of May 2024, updated for 2025 models"; as of 2026-09-05
+# neither half holds: no entry below carries a fetch date, and most of the currently
+# configured portfolio (openrouter_config.json's 2026 models) has no entry here at all.
+# The trustworthy price is the `pricing` block embedded in each model's own config
+# entry (prompt_per_mtok/completion_per_mtok, dated by `fetched`), which
+# `_get_model_cost_rate` always prefers when present. A model only reaches this table
+# when its configuration carries no price — treat every number below as unverified and
+# possibly years stale.
 MODEL_COSTS = {
     # Anthropic Claude models - Updated 2025 pricing (per 1M input tokens / 1M output tokens in USD)
     "claude-opus-4-1-20250805": {"input": 15, "output": 75},
@@ -151,6 +161,15 @@ COST_WARNING_THRESHOLDS = {
     "very_high": 50.0  # $50.00 - Very high cost warning
 }
 
+# Real execution runs every combination through ONE shared worker pool, not one worker
+# per model (see main.py's ParallelExecutionEngine / --max-workers, default 8). Summing
+# each model's own processing time as if models ran one after another — which this
+# module did until 2026-09-05 — reported a serial total for a run that is actually
+# parallel, inflating the displayed wall-clock estimate. A caller that knows the run's
+# real worker count should pass it as params["max_workers"]; this is only the fallback
+# for when it does not.
+DEFAULT_CONCURRENCY = 8
+
 # Time warnings thresholds (in minutes)
 TIME_WARNING_THRESHOLDS = {
     "notice": 2,      # 2 minutes - Just a notice
@@ -160,11 +179,36 @@ TIME_WARNING_THRESHOLDS = {
 }
 
 
+def _normalise_model_name(name: str) -> str:
+    """Reduce a model name to something comparable across providers.
+
+    The same model appears under three spellings in MODEL_COSTS depending on who
+    sells it: "anthropic/claude-sonnet-4" from OpenRouter (vendor path, no date),
+    "claude-sonnet-4-20250514" from Globant (dated), and the bare dated name for a
+    direct account. Comparing prices across providers means comparing these, so the
+    vendor prefix and a trailing release date are dropped.
+
+    Deliberately narrow: it strips a vendor path segment and an 8-digit date, and
+    nothing else. Anything cleverer would start matching models that merely look
+    alike, and a cost comparison that silently pairs the wrong two is worse than
+    one that reports a provider missing.
+    """
+    base = name.split("/")[-1]
+    base = re.sub(r"-20\d{6}$", "", base)
+    return base.strip().lower()
+
+
 class CostEstimator:
     """Estimates API costs and execution time for ISEE commands."""
     
     def __init__(self):
         """Initialize the cost estimator."""
+        # Populated by _load_models_info() when a *config*.json exists but cannot be
+        # listed, read, or parsed. estimate_cost() copies this into its return value so
+        # a broken config produces a visible warning instead of a plausible-looking
+        # price for a hardcoded 2024 portfolio that will not actually run — see the
+        # HIGH finding in docs/audit/2026-09-03-baseline.md, cost_estimation.py #1.
+        self.config_errors: List[str] = []
         self.models_info = self._load_models_info()
     
     @staticmethod
@@ -186,28 +230,46 @@ class CostEstimator:
 
     def _load_models_info(self) -> Dict[str, Dict[str, Any]]:
         """Load models information from configuration files.
-        
+
+        The hardcoded fallback portfolio (`_get_fallback_models_info`) is only the
+        right answer when there is genuinely nothing to read — no *config*.json in the
+        working directory at all. Every other failure mode here (can't list the
+        directory, a config file that doesn't parse, a config that parses but declares
+        no usable models) is a real problem with a specific file, and is recorded in
+        `self.config_errors` instead of being swallowed, so estimate_cost() can surface
+        it rather than quietly pricing models that will never run.
+
         Returns:
             Dictionary mapping model IDs to model information.
         """
         models_info = {}
-        
+
         # Look for configuration files
         config_files = []
         try:
             for file in os.listdir():
                 if file.endswith('.json') and ('config' in file.lower()):
                     config_files.append(file)
-        except Exception:
-            # If directory listing fails, use fallback model info
+        except OSError as e:
+            # Can't even see what configuration exists (missing/unreadable cwd). This
+            # is a failure, not "no configuration" — the intended silent fallback below
+            # never applies here.
+            self.config_errors.append(
+                f"could not list the working directory for *config*.json files: {e}")
             return self._get_fallback_models_info()
-        
+
+        if not config_files:
+            # Genuinely nothing to read. This is the ONE place the hardcoded fallback
+            # is the intended behaviour rather than a failure being papered over, so it
+            # stays silent — nothing went wrong, there was just no configuration.
+            return self._get_fallback_models_info()
+
         # Try to load models from configuration files
         for config_file in config_files:
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                
+
                 # Process models in the config file
                 if "models" in config:
                     # Check if models is a dictionary with sections or a flat list
@@ -221,14 +283,23 @@ class CostEstimator:
                         for model in config["models"]:
                             if self._model_is_usable(model):
                                 models_info[model.get("id")] = model
-            except Exception:
-                # Skip files with errors
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError) as e:
+                # A file that matched the *config*.json glob but could not be read as
+                # configuration is exactly what the audit flagged: silently skipping it
+                # let a malformed config produce a plausible price quote for a
+                # portfolio that would never actually run. Record which file and why.
+                self.config_errors.append(f"{config_file}: could not be read as a model configuration ({e})")
                 continue
-        
-        # If no models were found, use fallback model info
+
+        # If no models were found, that is now an error case (we had files to read;
+        # they just did not yield anything usable), not the "no configuration" case
+        # handled above — record it unless a more specific per-file reason already was.
         if not models_info:
+            if not self.config_errors:
+                self.config_errors.append(
+                    f"{', '.join(config_files)}: parsed but declared no usable models")
             return self._get_fallback_models_info()
-        
+
         return models_info
     
     def _get_fallback_models_info(self) -> Dict[str, Dict[str, Any]]:
@@ -294,19 +365,29 @@ class CostEstimator:
             Dictionary mapping provider names to their cost structures
         """
         costs = {}
-        
-        # Check OpenRouter pricing
-        openrouter_key = f"openrouter:{model_name}"
-        if openrouter_key in MODEL_COSTS:
-            costs["openrouter"] = MODEL_COSTS[openrouter_key]
-        elif model_name in MODEL_COSTS:
-            costs["direct"] = MODEL_COSTS[model_name]
-        
-        # Check Globant pricing
-        globant_key = f"globant:{model_name}"
-        if globant_key in MODEL_COSTS:
-            costs["globant"] = MODEL_COSTS[globant_key]
-            
+
+        # OpenRouter keys are not shaped like the others, and building one by
+        # concatenation could never match.
+        #
+        # MODEL_COSTS holds three shapes: "openrouter:anthropic/claude-sonnet-4"
+        # (vendor path, no date), "globant:claude-sonnet-4-20250514" (bare name with
+        # date) and "claude-opus-4-1-20250805" (bare, direct). This method is called
+        # with one name and used to build "openrouter:" + that name, so the
+        # OpenRouter branch was structurally dead for every model in the table —
+        # the cross-provider comparison silently reported one provider fewer than it
+        # had. Match on the normalised model name instead.
+        wanted = _normalise_model_name(model_name)
+
+        for key, entry in MODEL_COSTS.items():
+            provider, _, name = key.partition(":")
+            if not _:                              # no colon: a direct entry
+                provider, name = "direct", key
+            if _normalise_model_name(name) != wanted:
+                continue
+            # A direct entry must not displace a provider-specific one.
+            if provider not in costs:
+                costs[provider] = entry
+
         return costs
     
     def _get_model_cost_rate(self, model_info: Dict[str, Any]) -> Dict[str, float]:
@@ -479,7 +560,10 @@ class CostEstimator:
         if TIKTOKEN_AVAILABLE:
             # Use tiktoken for more accurate token counting
             try:
-                encoder = tiktoken.get_encoding("cl100k_base")  # Use Claude's encoding
+                # cl100k_base is OpenAI's tokenizer (GPT-3.5/4 era), not Claude's —
+                # Anthropic has never published one. Used here only as a cross-model
+                # approximation, which this estimate already is regardless of provider.
+                encoder = tiktoken.get_encoding("cl100k_base")
                 return len(encoder.encode(query))
             except Exception:
                 # Fallback to rough estimation if tiktoken fails
@@ -516,7 +600,12 @@ class CostEstimator:
         
         # Add tokens for instruction template and domain context
         instruction_tokens = PROMPT_TOKEN_SIZES["instruction"]
-        domain_tokens = PROMPT_TOKEN_SIZES["domain_context"] if params.get("domain") else 0
+        # _estimate_combinations() below already accepts EITHER params["domain"] (single)
+        # OR params["domains"] (a list) as domain context. Checking only "domain" here
+        # under-quoted every run that used the list form — the combination count grew
+        # with the domains, but the per-prompt token estimate silently assumed there was
+        # no domain context in the prompt at all.
+        domain_tokens = PROMPT_TOKEN_SIZES["domain_context"] if (params.get("domain") or params.get("domains")) else 0
         system_tokens = PROMPT_TOKEN_SIZES["system_overhead"]
         
         return query_tokens + instruction_tokens + domain_tokens + system_tokens
@@ -650,16 +739,80 @@ class CostEstimator:
             selected_models = all_models[:models_count]
         
         return selected_models
-    
-    def estimate_cost(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Estimate the cost and execution time for a command.
-        
+
+    def _validate_numeric_params(self, params: Dict[str, Any]) -> List[str]:
+        """Validate the numeric inputs the cost/time math depends on.
+
+        Before this check, a negative `models`/`max_tokens` reached the arithmetic
+        directly and came out the other end as a negative dollar figure that read like
+        a discount, a non-integer `variations` (a string from an un-coerced web form
+        field, say) raised a bare TypeError deep inside `_estimate_combinations`, and
+        nothing here ever caught either. Validate once, at the boundary every caller
+        goes through, and report every problem found rather than stopping at the first.
+
         Args:
             params: Dictionary of command parameters.
-            
+
+        Returns:
+            List of human-readable error strings; empty if all checked values are valid.
+        """
+        errors: List[str] = []
+
+        def check(name: str, value: Any, *, minimum: int, required: bool = True) -> None:
+            if value is None:
+                if required:
+                    errors.append(f"'{name}' is required")
+                return
+            # bool is a subclass of int in Python — True/False must not silently pass
+            # as 1/0 for a parameter that is supposed to be a combination count.
+            if isinstance(value, bool) or not isinstance(value, int):
+                errors.append(f"'{name}' must be a whole number, got {value!r}")
+                return
+            if value < minimum:
+                errors.append(f"'{name}' must be >= {minimum}, got {value}")
+
+        check("models", params.get("models", 2), minimum=1)
+        check("instructions", params.get("instructions", 3), minimum=1)
+        check("variations", params.get("variations", 2), minimum=0)
+        check("max_combinations", params.get("max_combinations"), minimum=1, required=False)
+        check("max_workers", params.get("max_workers") or params.get("concurrency"),
+              minimum=1, required=False)
+
+        model_params = params.get("parameters", {}) or {}
+        check("parameters.max_tokens", model_params.get("max_tokens", 1024), minimum=1)
+
+        return errors
+
+    def estimate_cost(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Estimate the cost and execution time for a command.
+
+        Args:
+            params: Dictionary of command parameters.
+
         Returns:
             Dictionary with cost and time estimates and warnings.
         """
+        # Reject bad numeric input before any of it reaches the cost/time arithmetic —
+        # see _validate_numeric_params for the concrete failures this prevents. Checked
+        # first, ahead of simulate/dry-run, because a caller passing e.g. models=-1
+        # deserves the same clear rejection regardless of which mode it was headed for.
+        parameter_errors = self._validate_numeric_params(params)
+        if parameter_errors:
+            return {
+                "total_cost": None,
+                "time_estimate_min": None,
+                "time_estimate_max": None,
+                "cost_warning_level": None,
+                "time_warning_level": None,
+                "cost_breakdown": {},
+                "time_breakdown": {},
+                "token_estimate": None,
+                "combinations_estimate": None,
+                "config_errors": list(self.config_errors),
+                "parameter_errors": parameter_errors,
+                "is_invalid": True
+            }
+
         # If simulate is enabled, zero cost
         if params.get("simulate", False):
             return {
@@ -672,9 +825,10 @@ class CostEstimator:
                 "time_breakdown": {},
                 "token_estimate": 0,
                 "combinations_estimate": 0,
+                "config_errors": list(self.config_errors),
                 "is_simulation": True
             }
-        
+
         # If dry run is enabled, zero cost
         if params.get("dry_run", False):
             return {
@@ -687,9 +841,10 @@ class CostEstimator:
                 "time_breakdown": {},
                 "token_estimate": 0,
                 "combinations_estimate": 0,
+                "config_errors": list(self.config_errors),
                 "is_dry_run": True
             }
-        
+
         # Get the number of combinations
         combinations = self._estimate_combinations(params)
         
@@ -776,28 +931,50 @@ class CostEstimator:
             
             total_tokens += model_total_tokens
         
+        # `total_time_min`/`total_time_max` above is the SERIAL total: every model's own
+        # processing time, added together as if the models ran one after another. Real
+        # execution runs all combinations through one shared worker pool (see
+        # DEFAULT_CONCURRENCY), so that sum is not the wall-clock estimate — it is what
+        # the run would take with a concurrency of exactly one. Approximate the actual
+        # makespan as total work divided by the effective number of workers, capped at
+        # the number of combinations (more workers than work does not speed it up
+        # further). This is an approximation — it assumes work divides evenly across
+        # workers — not a scheduler simulation.
+        requested_concurrency = params.get("max_workers") or params.get("concurrency") or DEFAULT_CONCURRENCY
+        effective_workers = max(1, min(int(requested_concurrency), max(combinations, 1)))
+        makespan_min = total_time_min / effective_workers
+        makespan_max = total_time_max / effective_workers
+
         # Determine warning levels
         cost_warning_level = None
         for level, threshold in sorted(COST_WARNING_THRESHOLDS.items(), key=lambda x: x[1]):
             if total_cost >= threshold:
                 cost_warning_level = level
-        
-        # Use the max time for warning level determination
+
+        # Use the max time for warning level determination — the makespan, since that is
+        # what a user waiting on the run actually experiences.
         time_warning_level = None
         for level, threshold in sorted(TIME_WARNING_THRESHOLDS.items(), key=lambda x: x[1]):
-            if total_time_max >= threshold:
+            if makespan_max >= threshold:
                 time_warning_level = level
-        
+
         return {
             "total_cost": round(total_cost, 2),
-            "time_estimate_min": round(total_time_min, 2),
-            "time_estimate_max": round(total_time_max, 2),
+            "time_estimate_min": round(makespan_min, 2),
+            "time_estimate_max": round(makespan_max, 2),
+            # Kept, but labelled separately and not used for warnings: the "if this ran
+            # with a single worker" total, in case a caller wants it. Never present this
+            # as the wall-clock estimate — that was finding 6 in the 2026-09-03 audit.
+            "sequential_time_min": round(total_time_min, 2),
+            "sequential_time_max": round(total_time_max, 2),
+            "concurrency_assumed": effective_workers,
             "cost_warning_level": cost_warning_level,
             "time_warning_level": time_warning_level,
             "cost_breakdown": cost_breakdown,
             "time_breakdown": time_breakdown,
             "token_estimate": total_tokens,
-            "combinations_estimate": combinations
+            "combinations_estimate": combinations,
+            "config_errors": list(self.config_errors)
         }
     
     def _estimate_combinations(self, params: Dict[str, Any]) -> int:
@@ -848,18 +1025,35 @@ class CostEstimator:
         Returns:
             Warning message or None if no warning is needed.
         """
-        # Simulation or dry run has no warnings
+        # Invalid input means nothing below was computed — say so instead of formatting
+        # None values into a warning that looks like a real (if boring) estimate.
+        if estimate.get("is_invalid"):
+            errors = estimate.get("parameter_errors") or ["invalid parameters"]
+            return "INVALID PARAMETERS — no estimate was computed:\n" + "\n".join(f"  - {e}" for e in errors)
+
+        warnings = []
+        config_errors = estimate.get("config_errors") or []
+        if config_errors:
+            # This is the visible half of finding 1 (2026-09-03 audit): a config that
+            # could not be read must not produce a price quote that looks as trustworthy
+            # as one built from the models that will actually run.
+            warnings.append(
+                "CONFIGURATION WARNING: the model configuration could not be read, so "
+                "this estimate falls back to a hardcoded reference portfolio that may "
+                "not match the models this run will actually use:")
+            warnings.extend(f"  - {e}" for e in config_errors)
+
+        # Simulation or dry run has no cost/time warnings, but a config problem is real
+        # regardless of mode.
         if estimate.get("is_simulation") or estimate.get("is_dry_run"):
-            return None
-        
+            return "\n".join(warnings) if warnings else None
+
         cost_warning = estimate.get("cost_warning_level")
         time_warning = estimate.get("time_warning_level")
         total_cost = estimate.get("total_cost", 0)
         time_max = estimate.get("time_estimate_max", 0)
         combinations = estimate.get("combinations_estimate", 0)
-        
-        warnings = []
-        
+
         # Cost warnings
         if cost_warning == "very_high":
             warnings.append(f"VERY HIGH COST: This operation will cost approximately ${total_cost:.2f} in API calls")
@@ -910,9 +1104,13 @@ class CostEstimator:
         Returns:
             String with a visual indicator of cost level.
         """
+        if estimate.get("is_invalid"):
+            # total_cost is None here — formatting it as currency would raise TypeError,
+            # trading one invisible failure (silent bad estimate) for a crashing one.
+            return "N/A (invalid parameters)"
         if estimate.get("is_simulation") or estimate.get("is_dry_run"):
             return "🔄 (No API cost - simulation mode)"
-        
+
         cost_warning = estimate.get("cost_warning_level")
         total_cost = estimate.get("total_cost", 0)
         
@@ -936,9 +1134,12 @@ class CostEstimator:
         Returns:
             String with a visual indicator of time level.
         """
+        if estimate.get("is_invalid"):
+            # time_estimate_min/max are None here — math.ceil(None) would raise.
+            return "N/A (invalid parameters)"
         if estimate.get("is_simulation") or estimate.get("is_dry_run"):
             return "⏱️ (Quick - simulation mode)"
-        
+
         time_warning = estimate.get("time_warning_level")
         time_min = estimate.get("time_estimate_min", 0)
         time_max = estimate.get("time_estimate_max", 0)
