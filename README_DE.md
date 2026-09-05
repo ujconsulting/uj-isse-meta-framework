@@ -104,7 +104,7 @@ auseinanderhält.
 ### Was ein Lauf bedeutet
 - **66 systematische Aufrufe** über alle Modelle und Rahmen
 - **~4 Minuten** für die Vollanalyse, **~1 Minute** für die Validierung mit 11 Aufrufen
-- **~$0,31 pro Vollanalyse, ~$0,05 pro Validierung** — aus abgerechneten Token gemessen,
+- **~$0,31 pro Vollanalyse, ~$0,12 pro Validierung** — aus abgerechneten Token gemessen,
   nicht geschätzt
 
 ### Weitere Eigenschaften
@@ -134,7 +134,7 @@ cp .env.template .env
 In `.env` eintragen:
 
 ```bash
-OPENROUTER_API_KEY=ihr_openrouter_schluessel
+OPENROUTER_API_KEY=your_openrouter_key_here
 ```
 
 Schlüssel anlegen: [https://openrouter.ai/keys](https://openrouter.ai/keys)
@@ -165,7 +165,7 @@ statt später in Authentifizierungsfehlern zu enden. Nutzen Sie `--provider open
 4. Fortschritt live verfolgen
 5. Ergebnisse ansehen oder herunterladen
 
-Vor der Vollanalyse lohnt **„Frage validieren"**: 11 gezielte Aufrufe für ~$0,05, um zu
+Vor der Vollanalyse lohnt **„Frage validieren"**: 11 gezielte Aufrufe für ~$0,12, um zu
 sehen, ob die Frage trägt.
 
 ### Kognitive Rahmen
@@ -236,6 +236,7 @@ erfolgreich, `1` teilweise gescheitert, `2` nichts hat funktioniert.
     openai                   1 model(s)    3 calls     0.0076  100.0%
 
   OpenRouter balance: $18.11 remaining ($113.37 used of $131.48)
+  At this run's cost that is roughly 2,386 more runs.
 ```
 
 Die Token-Zahlen stammen aus OpenRouters eigenem `usage`-Block, die Preise aus dem
@@ -319,8 +320,8 @@ sichtbar machen könnte.
 ## 🔍 Technischer Aufbau
 
 **Steuerung**
-- `main.py` (3.473 Zeilen) — Ausführungsmaschine und CLI
-- `app.py` (3.031 Zeilen) — Flask-Weboberfläche und REST-API
+- `main.py` (3.555 Zeilen) — Ausführungsmaschine und CLI
+- `app.py` (~3.200 Zeilen) — Flask-Weboberfläche und REST-API
 
 **KI-Anbindung**
 - `model_api_integration.py` — Provider-Gateway. Sendet nur die Sampling-Parameter, die
@@ -333,11 +334,11 @@ sichtbar machen könnte.
 - `domain_manager.py` (410 Zeilen) — Wissensdomänen
 
 **Auswertung**
-- `reporting.py` (1.056 Zeilen) — Synthese und Berichte
-- `cost_estimation.py` (958 Zeilen) — Vorab-Schätzung, aus den je Modell hinterlegten
+- `reporting.py` (1.157 Zeilen) — Synthese und Berichte
+- `cost_estimation.py` (1.159 Zeilen) — Vorab-Schätzung, aus den je Modell hinterlegten
   Preisen gerechnet
 - `run_cost_report.py` — was ein Lauf tatsächlich gekostet hat, aus abgerechneten Token
-- `performance_tracker.py` (413 Zeilen) — SQLite-gestützte Laufhistorie
+- `performance_tracker.py` (446 Zeilen) — SQLite-gestützte Laufhistorie
 
 ---
 
@@ -349,7 +350,7 @@ sichtbar machen könnte.
 ./scripts/dev-server.sh status   # Status
 ./scripts/dev-server.sh stop     # beenden
 
-python -m pytest tests/ -q       # Tests
+python -m pytest tests/ -q --ignore=tests/command_wizard   # Tests (231 Stück, Stand jetzt)
 ```
 
 ⚠️ Der Flask-Auto-Reloader ist **absichtlich aus**. Der Laufstatus liegt im

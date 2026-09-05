@@ -20,6 +20,14 @@ Reihenfolge = grobe Priorität, nicht Aufwand.
 > **Muster, das sich durchzieht:** Fast jeder dieser Fehler war *unsichtbar* — die
 > Oberfläche meldete Erfolg, das Log schwieg oder protokollierte auf Debug-Ebene, und die
 > Dateien waren da, nur leer. Nichts davon wäre durch Codelesen aufgefallen.
+>
+> **Nachtrag 05.09.2026** — die Audit-Nacharbeit aus `docs/audit/2026-09-03-baseline.md`
+> (Commits `d795033` bis `c47361c`): drei der fünf „zuerst"-Punkte des Audits sind behoben
+> (falsche Gewinner-Zuordnung, Bewertungsfehler ⇒ 0.0, CSV-Formelinjektion), zwei bleiben
+> offen (die Qualitätsschleuse selbst — Reparaturplan liegt vor, aber auf `REVISE`
+> stehengeblieben, nicht umgesetzt). Dazu: **3.5 (Neun rote Tests) ist überholt** — es sind
+> jetzt 231 grün, 0 rot, siehe dort für was sich geändert hat. Einzelheiten und Commits
+> stehen an den jeweiligen Abschnitten unten, nicht hier verdoppelt.
 
 ---
 
@@ -197,11 +205,72 @@ von einer Einzelmessung zu einer belastbaren Zahl machen.
 einem Versuch, gibt also eine Untergrenze als Gesamtsumme aus. Die Versuchszahl steht seit
 `8137f49` am Ergebnis — die Schätzung nutzt sie noch nicht.
 
-### 3.5 Neun rote Tests
-`tests/test_globant_integration.py` (6) und `tests/test_runner.py` (3) sind rot und waren
-es vor allen Änderungen dieser Sitzung — auf gestashtem Baum gemessen. Die Globant-Tests
-können ohne Zugang nicht grün werden; entweder als „übersprungen" markieren oder
-entfernen. `test_runner.py` ist ungeklärt.
+### 3.5 Neun rote Tests — **erledigt** (`c47361c`, 05.09.2026)
+*(Ursprungsfassung, zum Vergleich stehen gelassen):* `tests/test_globant_integration.py`
+(6) und `tests/test_runner.py` (3) waren rot und waren es vor allen Änderungen dieser
+Sitzung — auf gestashtem Baum gemessen. Die Globant-Tests können ohne Zugang nicht grün
+werden; entweder als „übersprungen" markieren oder entfernen. `test_runner.py` ist
+ungeklärt.
+
+**Das stimmte nicht mehr, sobald man nachsah.** Ein Subagent bekam den Auftrag, die neun
+Tests zu klären — Quelltext nicht anfassen, jeden echten Defekt melden statt ihn zu
+verdecken. Er fand drei, alle drei waren echt:
+
+1. **Der Fehlerdetektor verwarf Antworten, die von Fehlern *handeln*.** `main.py` schickt
+   jede Modellantwort durch `is_api_error()`; seit dieser Sitzung wird eine markierte
+   Antwort als fehlgeschlagener Aufruf geführt — raus aus Bewertung, Synthese und
+   Auslieferung. Der Detektor zählte Fehler-Vokabular per Teilstring und wertete zwei
+   Treffer unter 500 Zeichen als Beweis. Gemessen: „A blameless post-mortem culture
+   reduces repeat failures. When an error occurs, the team documents the timeout and the
+   failed request without assigning blame." wurde wegen drei Schlüsselwörtern als
+   API-Fehler gemeldet — das ist keine Fehlermeldung, das ist die Antwort selbst. Die
+   kritischen und kontrarischen Rahmen dieses Werkzeugs beauftragen ausdrücklich Prosa
+   darüber, was schiefgeht; die Heuristik maß das Thema und hielt es für das Ergebnis. Die
+   Vokabelzählung gilt jetzt nur noch für Text, der **nicht** wie Prosa liest (mind. 2
+   Sätze, mind. 15 Wörter), trifft nur ganze Wörter, und „organization"/„enterprise"
+   zählen nicht mehr als Fehlerbegriffe.
+2. **Genau diese beiden Wörter hatten eine echte Globant-Ablehnung mitversteckt** — der
+   Globant-Test schlug prompt an, als sie entfernt wurden. Die eigentliche Formulierung
+   der Ablehnung ist jetzt ein eigenes Phrasenmuster (`organization does not have access`
+   u. ä.) statt der beiden Einzelwörter, die nie wirklich das Erkennungsmerkmal waren.
+3. **Über den Anzeigenamen gewählte Domänen erreichten nie eine Domäne.** `app.py` prüfte
+   `identifier.startswith('dynamic_domain_') or not identifier.startswith('domain_')` —
+   das trifft auf alles zu, was noch keine ID ist, und lässt es unverändert durch. Die
+   Namensauflösungs-Leiter darunter war damit nur für bereits-IDs erreichbar, konnte ihre
+   eigentliche Aufgabe also nie erfüllen. „Education" kam als „Education" bei `main.py`
+   an und löste `KeyError: No domain with ID 'Education' exists` aus — ein 500 auf
+   `/api/preview-queries`. Die Auflösung prüft jetzt zuerst ID, dann exakten
+   Anzeigenamen, dann lässt sie unverändert durch — **bewusst ohne Fuzzy-Match**: eine
+   generierte Domäne, die still auf eine ähnlich benannte gespeicherte umgeleitet wird,
+   ändert, wonach der Lauf fragt, ohne dass irgendetwas darauf hinweist.
+
+**Keine der neun Assertions wurde abgeschwächt.** Der Pre-Commit-Secret-Scanner hielt den
+Commit wegen eines Test-Platzhalters auf; er wurde auf die Repo-Konvention „example-"
+umbenannt statt mit `--no-verify` durchgewunken.
+
+**Verifiziert (05.09.2026, diese Nachprüfung):**
+`python -m pytest tests/ -q -p no:warnings --ignore=tests/command_wizard` liefert
+**231 bestanden, 0 rot** — mehrfach reproduziert, unabhängig vom oben zitierten
+„231 tests pass" der Commit-Nachricht selbst nachgemessen.
+
+⚠️ **Neuer Fund dabei, nicht durch diesen Fix verursacht:** die Suite ist beim Wiederholen
+nicht ganz stabil. Von acht Testläufen dieser Nachprüfung (zwei volle Suite-Läufe, sechs
+isolierte Läufe von `tests/test_runner.py`) waren sechs sauber, einer hatte 2 rote Tests
+in `TestWebUIParameterValidation` (`csv_records: 0` statt der erwarteten Mindestzahl —
+`/api/preview-queries` lieferte über den In-Process-Testclient entweder einen Fehlerstatus
+oder `success: false`), und einer brach die Testsammlung selbst mit
+`SyntaxError: unterminated string literal (detected at line 2879)` ab — bei einer Datei,
+die nur 462 Zeilen hat, also mutmaßlich eine Datei, die während des Lesens verändert wurde.
+Ursache nicht gefunden: mögliche Kandidaten sind der seit dem 03.09. durchlaufende
+Dev-Server-Prozess (PID zum Zeitpunkt der Prüfung: 10851, hält vermutlich eine SQLite-Datei
+offen) oder der baumweite Sync-Mechanismus (`D:\Dokumente\Projekte\CLAUDE.md`: „wird
+zwischen Notebook und Büro-Workstation synchronisiert"), der Dateien während eines
+Testlaufs überschreiben könnte. **Nicht** untersucht: ob diese Unschärfe schon vor `c47361c`
+bestand — ein Vergleich hätte einen `git checkout` auf einen älteren Commit gebraucht, und
+im Arbeitsbaum liegen gerade unfertige Änderungen anderer Sitzungen (README, `app.py`,
+`openrouter_config.json`), die dafür nicht gestört werden sollten. Vor der nächsten Person,
+die auf einen roten `test_runner.py`-Lauf trifft und eine Regression vermutet: erst
+wiederholen, dann erst als echten Fund behandeln.
 
 ### 3.6 Dokumentation widerspricht sich weiterhin
 `CLAUDE.md` nennt die Scoring-Gewichte in **zwei unvereinbaren Fassungen** (Impact 30 /
@@ -267,8 +336,8 @@ dem Original als Referenz.
 | --- | --- | --- | --- | --- |
 | 1 | Visualisierungs-Bug | **ja, war aber falsch beschrieben** | s. Korrektur unter der Tabelle | **erledigt** (`837c01f`) |
 | 2 | Provider-Konsolidierung | **spiegelverkehrt** | Upstream konsolidiert auf Globant. Bei uns die Gegenrichtung: **auf OpenRouter konsolidieren**, Globant-Pfade und `hybrid` entfernen. Dieselbe Vereinfachung, andere Richtung. | eingedämmt (Exit 2), nicht entfernt — s. 2.4 |
-| 3 | `isee_engine.py` extrahieren | **ja** | Kernlogik aus `main.py` in ein importierbares Modul. Voraussetzung für #4. | offen |
-| 4 | Subprozess-Muster entfernen | **ja — größter Gewinn** | `app.py` importiert die Engine direkt, statt `main.py` zu starten und stdout zu parsen. Entfernt die Parameter-Übersetzungsschicht, an der diese Sitzung mehrfach hing (Ausgabeformat, Unicode über die Pipe, verschluckte Fortschrittsblöcke). | offen |
+| 3 | `isee_engine.py` extrahieren | **ja** | Kernlogik aus `main.py` in ein importierbares Modul. Voraussetzung für #4. | **weiterhin offen.** Plan liegt vor (`docs/plans/2026-09-03-engine-naht.md`), nach fünf Codex-Runden auf `VERDICT: REVISE` — kein `APPROVED`. Nur die vom Plan selbst als unabhängig markierten Vorbereitungsschritte 0a–0d sind erledigt (`4b2e84e`, 05.09.2026): `matplotlib.use("Agg")` vor jedem `pyplot`-Import, `run_cost_report` wirft keine `SystemExit` mehr, alle 12 SQLite-Verbindungsstellen tragen jetzt einen `busy_timeout`. Die eigentliche Extraktion (Schritte 1+) hat nicht begonnen. |
+| 4 | Subprozess-Muster entfernen | **ja — größter Gewinn** | `app.py` importiert die Engine direkt, statt `main.py` zu starten und stdout zu parsen. Entfernt die Parameter-Übersetzungsschicht, an der diese Sitzung mehrfach hing (Ausgabeformat, Unicode über die Pipe, verschluckte Fortschrittsblöcke). | **weiterhin offen** — hängt an #3, s. dort. Schritt 0e (`--workers 1` in `nixpacks.toml`) ist gesetzt, die dort ebenfalls geplante Betriebssperre beim Prozessstart (zweiter Prozess lehnt `/api/execute` und `/api/status` mit 503 ab) fehlt noch — nachgeprüft, kein Code dafür in `app.py`. |
 | 5 | UI-Aufräumen | **Liste ja, Diff nein** | Upstream strich 347 Zeilen Provider-Umschalt-UI. Unsere unterscheidet sich (wir behalten OpenRouter), die *Liste* des Toten überträgt sich, der Diff nicht. Geht in 1.2 auf. | teilweise (219 Zeilen Modell-Padding entfernt, `9545da3`) |
 | 6 | Execution Matrix | **upstream unfertig** | Phase 6 ist mitten in Arbeit („response loading TBD") und hat `isee-ui.html` um 24 % **vergrößert**. Selbst zu Ende bringen oder auslassen. | offen |
 | — | Flaches Ausgabelayout | **bewusst entscheiden** | `data/output/run_TIMESTAMP` statt verschachtelt. Einfacher, aber Vertrag mit mehreren Lesern (`reporting.py`, `cognitive_diversity_extractor.py`, `extract_raw_responses.py`, `organize_runs.py`, `launch_cognitive_explorer.py`, Ergebnisrouten in `app.py`). Nur lohnend, wenn alle mitziehen. | Läufe landen faktisch bereits flach unter `data/output/run_*` |

@@ -89,7 +89,7 @@ Cluster-based organization revealing complementary, contradictory, and emergent 
 ### Comprehensive Analysis Standard
 - **66 systematic calls** across models and frameworks automatically
 - **~4 minutes** for a full run, **~1 minute** for an 11-call validation
-- **~$0.31 per full run, ~$0.05 per validation** — measured from billed tokens, not estimated
+- **~$0.31 per full run, ~$0.12 per validation** — measured from billed tokens, not estimated
 - **Real-time indicators** show progress across all frameworks and models
 - **True multi-perspective exploration** beyond single-model limitations
 
@@ -143,6 +143,12 @@ python app.py
 ```
 
 **Access the interface**: http://localhost:5001/isee-ui
+
+⚠️ **Globant Enterprise AI** is wired into the code but not actually reachable: there is
+no self-serve signup and no public price list, access is arranged through their sales
+process. Without credentials, `--provider globant` aborts with a clear message instead of
+failing later with authentication errors. Use `--provider openrouter`, which this
+configuration is built for.
 
 ---
 
@@ -211,8 +217,9 @@ After your ISEE analysis completes, your comprehensive research findings are sav
   data/output/run_YYYYMMDD_HHMMSS/
   ├── isee_result.md              # ← PRIMARY RESULT FILE
   ├── queries_detailed_*.csv      # Complete query transparency
-  ├── results.json               # Raw analysis data
-  └── execution_log.txt          # Processing details
+  ├── raw_responses/              # Every successful individual response
+  ├── failed_responses/           # Failed calls with HTTP status — only if something failed
+  └── analysis.md                 # Analysis and scoring breakdown
   ```
 
 ### 💡 **Quick Summary**
@@ -282,8 +289,8 @@ Each query reveals insights across multiple cognitive clusters, ensuring compreh
 ### Core Python Capabilities
 
 **🎯 Primary Controllers:**
-- **`main.py`** (3,473 lines) - Core execution engine and CLI orchestration
-- **`app.py`** (3,031 lines) - Flask web interface with REST API endpoints
+- **`main.py`** (3,555 lines) - Core execution engine and CLI orchestration
+- **`app.py`** (~3,200 lines) - Flask web interface with REST API endpoints
 
 **🤖 AI Integration Layer:**
 - **`model_api_integration.py`** - Provider gateway. Sends only the sampling parameters a model actually accepts, and carries the HTTP status on every error
@@ -294,10 +301,10 @@ Each query reveals insights across multiple cognitive clusters, ensuring compreh
 - **`domain_manager.py`** (410 lines) - Knowledge domain contextualization
 
 **📊 Intelligence & Analytics:**
-- **`reporting.py`** (1,056 lines) - Result synthesis and comprehensive report generation
-- **`cost_estimation.py`** (958 lines) - Pre-run cost/time estimation, priced from the rates recorded per model
+- **`reporting.py`** (1,157 lines) - Result synthesis and comprehensive report generation
+- **`cost_estimation.py`** (1,159 lines) - Pre-run cost/time estimation, priced from the rates recorded per model
 - **`run_cost_report.py`** - What a run actually cost, from the tokens the provider billed
-- **`performance_tracker.py`** (413 lines) - SQLite-based performance monitoring
+- **`performance_tracker.py`** (446 lines) - SQLite-based performance monitoring
 
 ### Data Flow
 
@@ -319,7 +326,7 @@ Synthesis & Reporting → Performance Tracking
 
 📈 **Continuous Learning**: Performance analytics and model ranking drive systematic optimization
 
-**Total Core Codebase**: ~11,000 lines with 9 dependencies, designed for both accessibility and sophisticated multi-perspective research
+**Total Core Codebase**: ~12,400 lines across the modules above, with 14 runtime dependencies in `requirements.txt`, designed for both accessibility and sophisticated multi-perspective research
 
 ---
 
@@ -339,7 +346,14 @@ Synthesis & Reporting → Performance Tracking
 
 # Stop server
 ./scripts/dev-server.sh stop
+
+# Run the test suite (231 tests as of this writing)
+python -m pytest tests/ -q --ignore=tests/command_wizard
 ```
+
+⚠️ The Flask auto-reloader is **deliberately off**. Run state lives in process memory, and
+an analysis runs for minutes as a child process — a mid-run restart orphans that child
+process and the state is unrecoverable. If you need the reloader: `ISEE_FLASK_DEBUG=1`.
 
 ### Repository Structure
 
@@ -441,18 +455,21 @@ maintained by UJ Consulting for internal research use.
 Original work: Copyright 2025 **Joseph Fajen**, licensed under Apache-2.0. All copyright,
 attribution and license notices from the original work are retained.
 
-**Modifications in this fork** (Apache-2.0 §4(b) notice — files changed relative to
-upstream `main`):
+**Modifications in this fork** (Apache-2.0 §4(b) notice — this fork has diverged
+substantially from upstream `main`; the table below covers only the two legally salient
+files and is not a complete file list):
 
 | File | Change |
 | --- | --- |
 | `LICENSE` | Replaced the 19-line appendix stub with the complete Apache-2.0 text; original copyright line preserved verbatim |
-| `README.md` | Corrected the license statement (MIT → Apache-2.0), added this fork and modification notice, pointed the clone instructions at this fork |
-| `CLAUDE.md` | Added a pointer to the cross-model plan-review workflow |
-| `.gitignore` | Added entries for review working files |
-| `AGENTS.md`, `.codex/`, `tools/` | New files added by this fork; not present upstream |
+| `README.md`, `README_DE.md` | Corrected the license statement (MIT → Apache-2.0), added this fork and modification notice, and are kept factually current against the code and measured runs |
 
-Upstream is not responsible for, and does not endorse, these modifications.
+Beyond these two files, most of the Python modules, the test suite, and the
+documentation have been substantially rewritten since the fork diverged from upstream at
+commit `a35f081`. For the exact, current list, run
+`git diff --name-status a35f081...HEAD` in this repository rather than trusting a
+hand-maintained list here — it will always be more current than prose. Upstream is not
+responsible for, and does not endorse, any of it.
 
 ---
 
