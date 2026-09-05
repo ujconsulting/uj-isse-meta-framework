@@ -2840,41 +2840,51 @@ def generate_metadata_header(args, app, execution_start_time, execution_end_time
 
 
 def update_latest_symlink(run_output_dir: str) -> None:
-    """Update the 'latest' symlink to point to the most recent run directory.
-    
-    Args:
-        run_output_dir: Path to the completed run directory
+    """Record which run was the most recent one, in data/output/latest.txt.
+
+    A pointer file, not a symlink, and written in one atomic step.
+
+    The previous version created a symlink, and did it by deleting the old one and
+    then creating a new one. Two problems, both observed:
+
+    * On Windows, `os.symlink` needs a privilege an ordinary account does not have.
+      It raised WinError 1314 on every single run and printed a warning nobody could
+      act on. `data/output/latest` has therefore never existed on this machine.
+    * Delete-then-create is a race. Two runs finishing together could leave no
+      pointer at all, or one aimed at the earlier run.
+
+    Nothing in the repository reads the pointer — checked across the source, the
+    scripts and the documentation; the only mentions are this function and a session
+    note from 2025. It is kept anyway because "which run was last" is a fair question
+    to ask of an output directory, and a text file answers it on any platform, in any
+    shell, and after the directory has been copied somewhere else.
+
+    The name is unchanged so the two call sites keep working.
     """
+    output_base = os.path.join("data", "output")
+    pointer = os.path.join(output_base, "latest.txt")
+
     try:
-        # Get the output base directory
-        output_base = os.path.join("data", "output")
-        latest_link = os.path.join(output_base, "latest")
-        
-        # Convert run_output_dir to relative path from output directory
         if run_output_dir.startswith(output_base):
-            # Handle both organized (monthly/weekly) and flat structures
             relative_path = os.path.relpath(run_output_dir, output_base)
         else:
-            # Fallback: use just the run folder name
             relative_path = os.path.basename(run_output_dir)
-        
-        # Remove existing symlink if it exists
-        if os.path.islink(latest_link):
-            os.unlink(latest_link)
-        elif os.path.exists(latest_link):
-            # Handle case where 'latest' is a regular directory/file
-            if os.path.isdir(latest_link):
-                os.rmdir(latest_link)
-            else:
-                os.remove(latest_link)
-        
-        # Create new symlink
-        os.symlink(relative_path, latest_link)
-        print(f"Updated 'latest' symlink to point to: {relative_path}")
-        
-    except Exception as e:
-        print(f"Warning: Could not update 'latest' symlink: {e}")
-        # Don't fail the whole run if symlink update fails
+
+        os.makedirs(output_base, exist_ok=True)
+        # Write beside the target and rename over it: os.replace is atomic on both
+        # POSIX and Windows, so a concurrent run either sees the old pointer or the
+        # new one, never a half-written or missing file.
+        temporary = pointer + f".{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            print(relative_path, file=handle)
+        os.replace(temporary, pointer)
+        print(f"Recorded latest run: {relative_path}")
+
+    except OSError as e:
+        # Still non-fatal: knowing which run was last is a convenience, and a run
+        # that produced its results has succeeded whether or not this file is written.
+        print(f"Warning: could not record the latest run in {pointer}: {e}")
+
 
 
 def main():
