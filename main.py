@@ -459,6 +459,10 @@ class ISEEApplication:
         self.query_generator = QueryGenerator(use_dynamic_variations=True)  # Enable dynamic context-sensitive variations
         self.domain_manager = DomainManager()
         self.scoring_framework = create_default_framework()
+        #: combination id -> {criterion: error detail} for criteria whose scorer
+        #: raised. Empty on a healthy run; reported after evaluation rather than
+        #: left for someone to find in a log.
+        self.scoring_failures = {}
         
         # Add default data
         for query in create_default_queries():
@@ -1736,9 +1740,31 @@ class ISEEApplication:
             
             # Store the scores
             evaluations[combo_id] = scores
+
+            # Collect the criteria that could not be scored at all.
+            #
+            # score_text records them and reports the score as None instead of the
+            # 0.0 it used to substitute, which is what stopped a broken scorer from
+            # looking like a poor answer. But the structured detail it keeps had no
+            # reader, so the run still could not say WHICH criterion failed or why —
+            # exactly the half-finished state a subagent found when checking this
+            # session's commits against the code.
+            failures = self.scoring_framework.get_scoring_errors()
+            if failures:
+                self.scoring_failures[combo_id] = failures
             self.evaluations[combo_id] = scores
         
         print(f"Evaluated {len(evaluations)} results")
+        if self.scoring_failures:
+            affected = sum(len(v) for v in self.scoring_failures.values())
+            print(f"WARNING: {affected} criterion score(s) across "
+                  f"{len(self.scoring_failures)} response(s) could not be computed. "
+                  "Those criteria are absent, not zero, and the affected responses "
+                  "were ranked on the criteria that did run.")
+            for combo_id, failures in list(self.scoring_failures.items())[:3]:
+                for name, detail in failures.items():
+                    print(f"  {combo_id[:44]}: {name} -> "
+                          f"{detail.get('error_type')}: {detail.get('message')}")
         return evaluations
     
     def get_top_results(
