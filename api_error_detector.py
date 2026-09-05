@@ -34,6 +34,14 @@ class APIErrorDetector:
             r'Organization quota exceeded',
             r'Enterprise model not available',
             r'Unauthorized organization access',
+            # Phrase-level, not word-level. Removing 'organization' and 'enterprise'
+            # from the keyword list stopped the detector discarding ordinary prose --
+            # and took this real Globant refusal with it, which the Globant test
+            # caught immediately. The shape of the sentence is what identifies it;
+            # the individual words never did.
+            r'organization does not have access',
+            r'does not have access to this enterprise',
+            r'organization .{0,40}not (?:have|been granted) access',
             
             # HTTP error patterns
             r'Error \d{3}:',
@@ -75,18 +83,50 @@ class APIErrorDetector:
             'not found',
             'bad request',
             'service unavailable',
-            # Globant-specific error indicators
-            'organization',
-            'enterprise',
+            # Globant-specific error indicators.
+            #
+            # 'organization' and 'enterprise' used to sit here. They are not error
+            # terms — they are ordinary business vocabulary, and Globant's actual
+            # error strings ("Organization ID not found", "Enterprise API access
+            # denied") already have their own explicit patterns above, which match
+            # the whole phrase rather than one word out of it.
             'globant',
             'quota exceeded',
             'access denied',
             'credentials'
         ]
         
+        # Whole words only. `'organizational'` must not count as `'organization'`,
+        # and `'errors'` must not count as `'error'`.
+        self._indicator_patterns = [
+            re.compile(r"\b" + re.escape(indicator) + r"\b", re.IGNORECASE)
+            for indicator in self.error_indicators
+        ]
+
         # Response length thresholds
         self.min_valid_length = 50  # Responses shorter than this are suspect
         self.max_error_length = 500  # Error messages are usually short
+
+    #: A response is treated as prose -- and therefore exempt from the vocabulary
+    #: heuristic -- once it carries this many sentences and this many words. Both
+    #: are deliberately low: the point is to exclude fragments, not to require an
+    #: essay. A provider error body clears neither.
+    PROSE_MIN_SENTENCES = 2
+    PROSE_MIN_WORDS = 15
+
+    @classmethod
+    def _reads_as_prose(cls, text: str) -> bool:
+        """Does this look like something a model wrote, rather than an error body?
+
+        Error bodies are fragments: a status line, a JSON object, a single clause.
+        Answers are sentences. This is a coarse test on purpose -- it decides only
+        whether the error-vocabulary count is allowed to apply, and everything
+        structural (JSON errors, provider patterns, HTTP status) runs before it and
+        is unaffected.
+        """
+        sentences = len(re.findall(r"[.!?](?:\s|$)", text))
+        words = len(re.findall(r"\b\w+\b", text))
+        return sentences >= cls.PROSE_MIN_SENTENCES and words >= cls.PROSE_MIN_WORDS
         
     def is_api_error(self, response_text: str, metadata: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         """
@@ -117,17 +157,32 @@ class APIErrorDetector:
         # Check response length (very short responses are often errors)
         if response_length < self.min_valid_length:
             # But allow short responses if they don't contain error indicators
-            if any(indicator in response_lower for indicator in self.error_indicators):
+            if any(p.search(response_lower) for p in self._indicator_patterns):
                 return True, f"Short response ({response_length} chars) with error indicators"
             elif response_length < 20:  # Extremely short responses are almost always errors
                 return True, f"Extremely short response ({response_length} chars)"
         
-        # Check for high concentration of error keywords
-        error_keyword_count = sum(1 for indicator in self.error_indicators 
-                                if indicator in response_lower)
-        
-        if error_keyword_count >= 2 and response_length < self.max_error_length:
-            return True, f"Multiple error keywords ({error_keyword_count}) in short response"
+        # Check for a high concentration of error keywords -- but only in text that
+        # does not read as prose.
+        #
+        # A provider's error body is a fragment: a status line, a JSON blob, a clause
+        # without a subject. A model's answer is prose, and this tool explicitly
+        # commissions prose about what goes wrong -- the critical, contrarian and
+        # first-principles frameworks ask for exactly that. Counting error vocabulary
+        # in prose therefore measures the topic, not the outcome.
+        #
+        # Measured on 03.09.2026, before this gate: "A blameless post-mortem culture
+        # reduces repeat failures. When an error occurs, the team documents the
+        # timeout and the failed request without assigning blame." was reported as an
+        # API error on three keywords -- and main.py:1480 turns that verdict into a
+        # recorded failure, so the answer never reaches scoring or the synthesis.
+        if not self._reads_as_prose(response_text):
+            error_keyword_count = sum(
+                1 for pattern in self._indicator_patterns
+                if pattern.search(response_lower)
+            )
+            if error_keyword_count >= 2 and response_length < self.max_error_length:
+                return True, f"Multiple error keywords ({error_keyword_count}) in short response"
         
         # Check for metadata indicators
         if metadata:
