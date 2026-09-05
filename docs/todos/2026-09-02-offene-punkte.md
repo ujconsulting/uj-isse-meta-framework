@@ -28,12 +28,33 @@ Reihenfolge = grobe Priorität, nicht Aufwand.
 > stehengeblieben, nicht umgesetzt). Dazu: **3.5 (Neun rote Tests) ist überholt** — es sind
 > jetzt 231 grün, 0 rot, siehe dort für was sich geändert hat. Einzelheiten und Commits
 > stehen an den jeweiligen Abschnitten unten, nicht hier verdoppelt.
+>
+> **Nachtrag 05.09.2026, zweite Haelfte** — abgearbeitet: 1.1 (Laufarchiv gebaut),
+> 2.1 (alle drei ungeprueften Routen geprueft; die Explorer-Routen waren komplett
+> defekt), 2.11 (vier Routen antworteten mit fremden Laeufen), 3.1, 3.2, 3.4, 3.6, 4.4.
+> Neu aufgenommen: **2.10, zwei Ausgabelayouts nebeneinander** — daran sind an einem Tag
+> drei Leser gescheitert, die eine vollstaendige Liste zu liefern vorgaben.
+>
+> **Was jetzt noch offen ist und nicht von mir allein geht:** 4.1 (privates Reporting in
+> den GitHub-Einstellungen einschalten — erst danach `SECURITY.md`), 4.2 (Entscheidung
+> ueber das Schluesselpraefix im Verlauf), 4.3 (Schluessel in den Vault; ich darf `.env`
+> nicht lesen). Der Rest ist Arbeit: 1.2, 2.2, 2.4, 2.6, 2.10, 3.3, 5.1 #3/#4/#6 und die
+> Qualitaetsschleuse.
 
 ---
 
 ## 1. Ausdrücklich gewünscht, noch nicht gebaut
 
-### 1.1 Archiv vergangener Abfragen
+### 1.1 Archiv vergangener Abfragen - **erledigt** (`e1f30ac`, `7560aa5`, 05.09.2026)
+`/runs` listet jeden Lauf, was er erzeugt hat, was er gekostet hat und was fehlt.
+Rechnet nichts neu; eine Zahl, die kein Lauf erfasst hat, liest sich „nicht erfasst“,
+nie „$0.00“. Aus der Navigation verlinkt.
+
+WARNUNG - Nachtrag am selben Tag: die erste Fassung zeigte **sieben von neun** Laeufen,
+weil sie nur das flache Layout durchsuchte. Siehe den neuen Punkt 2.10.
+
+<details><summary>urspruenglicher Text</summary>
+
 **Wunsch (02.09.2026):** eine Übersicht aller bisherigen Läufe mit den erzeugten
 Dokumenten und Ergebnissen.
 
@@ -50,6 +71,8 @@ entsteht, die dann auch eigene Übersetzung und eigenes Design braucht (siehe 1.
 
 **Mitzudenken:** Die Läufe enthalten die vollständigen Forschungsfragen. Wer die Liste
 sieht, sieht sie alle — relevant, sobald das Werkzeug nicht mehr nur lokal läuft.
+
+</details>
 
 ### 1.2 Oberfläche zeitgemäß gestalten
 **Wunsch (02.09.2026):** nicht nur aufräumen, sondern „schön" und zeitgemäß — etwas, das
@@ -79,19 +102,35 @@ sind es zwei, die so tun, als wären sie eine.
 Verifiziert sind: Modell-Endpunkte, Kostenschätzung, Start und Statusverlauf eines Laufs,
 `/api/markdown`, `/api/download-zip`, Sprachumschaltung, Modellauswahl.
 
+**Alle drei am 05.09.2026 geprueft - und alle drei waren defekt oder ungedeckt:**
+
+- **Explorer-Routen: waren vollstaendig kaputt.** Kein Lauf hatte je einen Index, keiner
+  liess sich erzeugen. Drei Kodierungsfehler hintereinander (`40c64fc`); der Extraktor
+  scheiterte am Ausgeben eines Haekchen-Emoji in eine Pipe, *vor* dem Speichern.
+- **`/api/suggest-domains` ruft Claude 3 Haiku und wird dafuer bezahlt**, ohne jede
+  Begrenzung. Der Kostendeckel vom selben Tag deckte nur `/api/execute` und
+  `/api/analyze-test`. Geschlossen in `c4f577e`, eigener Stundeneimer.
+- `/api/enhance-query` arbeitet rein lokal, kein Netzaufruf - geprueft.
+- `/api/collections` antwortet sauber mit 200 und `{}`, weil `llm_collections.json`
+  fehlt. Ob die Datei je existieren soll, ist weiterhin offen.
+
+<details><summary>urspruenglicher Text</summary>
+
 **Ungeprüft:**
 - Cognitive-Diversity-Explorer-Routen (`/cognitive_diversity_explorer/<run_id>`,
   `/api/cognitive_diversity_data/<run_id>`, `/api/extract_cognitive_diversity`)
 - `/api/enhance-query` und `/api/suggest-domains`
 - `/api/collections` liefert `{}` („llm_collections.json not found") — Absicht oder Rest?
 
+</details>
+
 ### 2.2 Übersetzung unvollständig
 Übersetzt ist die Hauptoberfläche (~110 Zeichenketten) samt dynamisch nachgeladener
 Teile. **Nicht übersetzt:** Cognitive Diversity Explorer, `/docs`, `/about`, und alle
 Meldungen, die das Backend erzeugt (Fortschritt, Fehler, Zusammenfassungen).
 
-### 2.3 Favicon
-`/favicon.ico` liefert 404 — der einzige Konsolenfehler der Oberfläche. Kosmetisch,
+### 2.3 Favicon - **erledigt** (`a3c0f6d`)
+`/favicon.ico` lieferte 404 — der einzige Konsolenfehler der Oberfläche. Kosmetisch,
 aber ein Einzeiler.
 
 ### 2.4 `--provider` steuert die Ausführung nicht
@@ -180,30 +219,87 @@ nicht vorher. Ein weiteres Argument für diesen Schritt.
 
 ---
 
+### 2.10 Zwei Ausgabelayouts nebeneinander — **neu, 05.09.2026, offen**
+`app.py` legt `data/output/run_TIMESTAMP` an, `main.py` im Konstruktor
+`data/output/YYYY-MM/weekN/run_TIMESTAMP`. Ein Lauf aus dem Browser landet flach, einer
+von der Kommandozeile verschachtelt. **Das ist kein Rest, beide Pfade laufen.**
+
+Bisher dreimal darüber gestolpert, jedes Mal in Code, der eine vollständige Liste zu
+liefern vorgab: das Laufarchiv zeigte 7 von 9 Läufen, `latest.txt` zeigte auf ein
+nicht existierendes Verzeichnis, und die selbstkorrigierende Kostenschätzung sah
+ausschließlich Web-Läufe.
+
+Alle drei Leser handhaben jetzt beide Layouts. **Die eigentliche Reparatur ist ein
+Layout** — und die ist laut `CLAUDE.md` review-pflichtig (Änderung am
+Run-Ausgabelayout), deshalb hier nicht nebenbei gemacht.
+
+Solange sie aussteht: **der Cognitive Diversity Explorer kann verschachtelte Läufe gar
+nicht öffnen.** Seine Route und die zwei APIs seiner Seite nehmen eine Lauf-Kennung
+ohne Schrägstrich, und `/api/raw-response` prüft sie gegen `run_YYYYMMDD_HHMMSS`. Das
+Archiv sagt das jetzt sichtbar an, statt die Lücke zu lassen.
+
+### 2.11 Ergebnisrouten antworteten mit fremden Läufen — **erledigt** (`4260d69`, `40c64fc`)
+Vier Routen ersetzten eine unauflösbare Kennung durch einen anderen Lauf. Gemessen mit
+einer erfundenen Kennung: 160.854 / 19.400 / 13.156 Bytes, alle HTTP 200. Die vierte
+(`/api/extract_cognitive_diversity`) suchte einen Lauf mit „nahem" Zeitstempel und
+**schreibt** in den gewählten hinein.
+
+---
+
 ## 3. Technische Schulden mit Nachweis
 
-### 3.1 Tote Konfiguration
+### 3.1 Tote Konfiguration - **erledigt** (05.09.2026)
+453 Zeilen entfernt, fuenf von elf Bloecken. Ein Test haelt die Form fest.
+
+<details><summary>urspruenglicher Text</summary>
+
 Der Block `cognitive_diversity` in `openrouter_config.json` (~200 Zeilen) wird **von
 keiner Codestelle gelesen** — geprüft. Er referenziert zudem Modelle, die nicht in
 `api_models` stehen. Löschen ist richtig, war aber in keinem der bisherigen Diffs
 sachlich begründbar.
 
-### 3.2 `update_latest_symlink` ohne Sperre
+</details>
+
+### 3.2 `update_latest_symlink` - **erledigt** (05.09.2026)
+Kein Symlink mehr, sondern `latest.txt`, atomar geschrieben. Am 05.09. kam heraus, dass
+der Zeiger fuer **jeden** CLI-Lauf auf ein nicht existierendes Verzeichnis zeigte:
+`startswith` verglich `data/output/...` mit `data\output` (`53b5736`).
+
+<details><summary>urspruenglicher Text</summary>
+
 `main.py` löscht den `latest`-Link und legt ihn neu an, ohne Absicherung. Bei zwei
 gleichzeitigen Läufen kann er fehlen oder auf den falschen Lauf zeigen. Unter Windows
 scheitert er ohnehin (`WinError 1314`, fehlendes Symlink-Recht) — die Warnung erscheint
 bei jedem Lauf und ist bisher nur Rauschen.
 
-### 3.3 Verbrauchsdaten werden nicht persistiert
+</details>
+
+### 3.3 Verbrauchsdaten werden nicht persistiert - **weiterhin offen**
+Die Zahlen liegen inzwischen je Lauf in `cost_report.json`, und die Schaetzung liest sie
+von dort (`516cf51`). **`performance_tracking.db` hat weiterhin keine Spalten dafuer** -
+dieser Punkt ist also *nicht* erledigt, nur umgangen.
+
+<details><summary>urspruenglicher Text</summary>
+
 Seit `7e52b4a` stehen die abgerechneten Token je Antwort im Ergebnisdatensatz und im
 Bericht. **`data/performance_tracking.db` hat aber keine Spalten dafür.** Damit lässt sich
 kein laufender Mittelwert bilden — und genau der würde `TYPICAL_RESPONSE_TOKENS = 2500`
 von einer Einzelmessung zu einer belastbaren Zahl machen.
 
-### 3.4 Retries werden nicht eingepreist
+</details>
+
+### 3.4 Retries werden nicht eingepreist - **erledigt** (`516cf51`, 05.09.2026)
+Der Kostenbericht haelt jetzt `combinations` und `total_attempts` fest, die Schaetzung
+multipliziert mit der gemessenen Rate und bleibt bei 1,0, solange zu wenig auf Platte
+steht. Gescheiterte Kombinationen zaehlen mit.
+
+<details><summary>urspruenglicher Text</summary>
+
 `main.py` versucht bis zu **drei** Mal je Kombination. Die Vorabschätzung rechnet mit
 einem Versuch, gibt also eine Untergrenze als Gesamtsumme aus. Die Versuchszahl steht seit
 `8137f49` am Ergebnis — die Schätzung nutzt sie noch nicht.
+
+</details>
 
 ### 3.5 Neun rote Tests — **erledigt** (`c47361c`, 05.09.2026)
 *(Ursprungsfassung, zum Vergleich stehen gelassen):* `tests/test_globant_integration.py`
@@ -272,7 +368,13 @@ im Arbeitsbaum liegen gerade unfertige Änderungen anderer Sitzungen (README, `a
 die auf einen roten `test_runner.py`-Lauf trifft und eine Regression vermutet: erst
 wiederholen, dann erst als echten Fund behandeln.
 
-### 3.6 Dokumentation widerspricht sich weiterhin
+### 3.6 Dokumentation widerspricht sich - **erledigt** (05.09.2026)
+Eine Gewichtstabelle, 14 Modelle, 11 Rahmen. Am 05.09. kam dazu: der Abschnitt zum
+Cognitive Diversity Explorer nannte ihn „fully operational and battle-tested“,
+waehrend er keinen einzigen Lauf oeffnen konnte (`941033d`).
+
+<details><summary>urspruenglicher Text</summary>
+
 `CLAUDE.md` nennt die Scoring-Gewichte in **zwei unvereinbaren Fassungen** (Impact 30 /
 Novelty 25 / Feasibility 20 / Comprehensiveness 15 / Specificity 10 gegen Actionability 20
 / Specificity 25) und listet ein Modell-Portfolio, das **keinem** der beiden Branches
@@ -281,6 +383,8 @@ entspricht — darunter „Llama 3.3 70B (`awsbedrock/meta.llama3-2-11b`)", ein 
 `CLAUDE.md` nicht.
 
 ---
+
+</details>
 
 ## 4. Sicherheit und Betrieb
 
@@ -305,13 +409,21 @@ Alle 381 Vaultwarden-Einträge geprüft: **kein** OpenRouter-Eintrag. Nach der
 `credential-vault`-Regel gehört er dorthin, etwa als
 `uj-isse-meta-framework/openrouter_api_key`, mit Round-Trip-Prüfung.
 
-### 4.4 Falsch-Positive des Secret-Hooks (geteiltes Werkzeug)
+### 4.4 Falsch-Positive des Secret-Hooks - **erledigt** (05.09.2026, im Wissensbaum)
+`SKIP_VAL` deckte `os.environ`/`self.` bereits ab; am 05.09. blockierte der Hook
+`api_key = _recall_api_key()`. Ein Funktionsaufruf ist nie ein Literal - die Pruefung
+sitzt jetzt an der Fundstelle. An acht Faellen gegengeprueft, ins LAN-Gitea gepusht.
+
+<details><summary>urspruenglicher Text</summary>
+
 `_claude\vault\git_secret_precommit.py` meldet Variablen-Referenzen als Secrets:
 `genai.configure(api_key=self.api_key)` und `api_key = os.environ.get("…")` — Letzteres ist
 gerade das *richtige* Muster. Jeder Commit dieser Sitzung brauchte deshalb `--no-verify`,
 was den Hook auf Dauer entwertet. `SKIP_VAL` um `os.environ`, `os.getenv` und `self.`
 erweitern würde die Klasse schließen. **Betrifft alle Repos** — deshalb nicht einseitig
 geändert.
+
+</details>
 
 ### 4.5 Budget
 Stand 02.09.2026: **$18,11 von $131,48 übrig.** Diese Sitzung (Entwicklung + alle
