@@ -47,6 +47,10 @@ python app.py
 
 **Primary Interface**: http://localhost:5001/isee-ui (Web UI - recommended)
 
+**Run archive**: http://localhost:5001/runs — every past run, what it produced, what
+it cost, and what is missing. Reads `data/output` and computes nothing new; a number
+no run recorded reads "not recorded", never "$0.00".
+
 - Always remember to check the last few session summaries for context. They are in the `session-summaries` folder.
 
 ### Latest Features (August 2025)
@@ -176,7 +180,16 @@ Synthesis & Reporting → Performance Tracking → Analysis Reports
 - `.env` - Environment variables and API keys
 
 **Data Storage:**
-- `data/output/YYYY-MM/weekX/run_YYYYMMDD_HHMMSS/` - Organized run results
+- ⚠️ **Two run layouts exist side by side, and this is not a leftover.** `app.py`
+  creates `data/output/run_TIMESTAMP` before launching the subprocess, while
+  `main.py`'s constructor computes `data/output/YYYY-MM/weekN/run_TIMESTAMP`. So a
+  run started in the browser lands flat and a run started at the command line lands
+  nested. Any reader of `data/output` must handle both — the run archive did not at
+  first, and silently listed seven of nine runs (05.09.2026). Unifying them is a
+  change to the run output layout and therefore needs a reviewed plan.
+- `data/output/YYYY-MM/weekX/run_YYYYMMDD_HHMMSS/` - CLI runs
+- `data/output/run_YYYYMMDD_HHMMSS/` - Web UI runs
+- `data/output/latest.txt` - the last run, as a path relative to `data/output`
 - `data/analysis_reports/` - Generated analysis reports with search capabilities  
 - `data/performance_tracking.db` - SQLite database for performance analytics
 
@@ -387,6 +400,12 @@ GLOBANT_BASE_URL=https://api.saia.ai
 # ANTHROPIC_API_KEY=your_anthropic_key
 # OPENAI_API_KEY=your_openai_key  
 # GOOGLE_API_KEY=your_google_key
+
+# How many analyses may be started, and how close together. Every start spends
+# real money, and the web interface has no authentication, so this is the only
+# thing bounding what a caller can run up. Defaults: 3 and 10.
+# ISEE_MAX_CONCURRENT_RUNS=3
+# ISEE_MAX_RUNS_PER_HOUR=10
 ```
 
 ### Execution Settings
@@ -589,11 +608,30 @@ This transforms ISEE into something **unprecedented in the AI space**:
 
 ### Development Status
 
-**Current Status:** Fully operational and battle-tested
-- ✅ Complete metadata extraction system
+**Current Status:** working since 05.09.2026 — before that, it could not open a
+single run on this machine, while this section said "fully operational and
+battle-tested".
+
+What was wrong is worth remembering, because none of it looked like this feature
+failing. The extractor printed a checkmark emoji; run by hand its output is a
+terminal, which copes, but `app.py` runs it through a pipe, where Windows falls
+back to cp1252 and the emoji raised `UnicodeEncodeError`. That print sits *before*
+`save_index`, so no index was ever written — no run directory under `data/output`
+had one. What surfaced was "extraction failed" plus a traceback about a checkmark,
+which reads like a cosmetic complaint. Two more layers of the same fault sat behind
+it: `launch_cognitive_explorer.py` opened files without naming an encoding, and
+`app.py` read the pipe with bare `text=True`, killing the reader thread that was
+supposed to report the error.
+
+- ✅ Metadata extraction — runs, and is now triggered by the explorer route itself
+      when a run has no index yet. It used to require one particular button after
+      one particular analysis, so every other way in (the run archive, a bookmark,
+      a second visit) hit "Please extract metadata first".
 - ✅ Interactive web interface with real-time data serving
 - ✅ CLI tools for programmatic analysis
-- ✅ Comprehensive documentation and examples
+- ⚠️ **Only for runs in the flat layout.** The route and the two APIs its page
+      calls take a run id that cannot contain a slash, so a nested CLI run cannot be
+      addressed at all. See the two-layout warning under Data Storage.
 - ✅ Integration with existing ISEE workflow
 
 **Next Development Phase:**
