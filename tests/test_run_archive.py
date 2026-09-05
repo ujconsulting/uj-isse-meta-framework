@@ -92,7 +92,7 @@ class TestACompleteRunReportsWhatActuallyHappened(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_the_query_comes_from_run_summary_not_isee_result(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(
             summary["query"],
@@ -100,12 +100,12 @@ class TestACompleteRunReportsWhatActuallyHappened(unittest.TestCase):
         )
 
     def test_the_timestamp_is_parsed_from_the_run_id(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(summary["timestamp"], "2026-09-03T19:58:44")
 
     def test_combination_counts_come_from_the_actual_files(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(summary["combinations_total"], 3)
         self.assertEqual(summary["combinations_succeeded"], 3)
@@ -117,22 +117,22 @@ class TestACompleteRunReportsWhatActuallyHappened(unittest.TestCase):
         self.assertIsNone(summary["combinations_failed"])
 
     def test_the_cost_is_read_from_cost_report_json(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(summary["cost_usd"], 0.123456)
 
     def test_every_existing_artefact_gets_a_path(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
         artifacts = summary["artifacts"]
 
-        self.assertEqual(
-            artifacts["isee_result_md"],
-            "data/output/run_20260903_195844/isee_result.md",
-        )
-        self.assertEqual(
-            artifacts["cost_report_json"],
-            "data/output/run_20260903_195844/cost_report.json",
-        )
+        # Against the run's reported location, not against a synthesised
+        # "data/output/<id>". The synthesised form was wrong for every run started
+        # from the command line, which lands in data/output/YYYY-MM/weekN/ -- a link
+        # built from the id alone pointed at a flat path that does not exist. The
+        # download route takes a path, so the path is what has to be right.
+        location = summary["location"]
+        self.assertEqual(artifacts["isee_result_md"], f"{location}/isee_result.md")
+        self.assertEqual(artifacts["cost_report_json"], f"{location}/cost_report.json")
         self.assertEqual(artifacts["raw_responses_count"], 2)
         self.assertEqual(
             artifacts["cognitive_diversity_explorer_url"],
@@ -140,7 +140,7 @@ class TestACompleteRunReportsWhatActuallyHappened(unittest.TestCase):
         )
 
     def test_a_run_with_no_failures_has_no_failed_responses_directory_link(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertIsNone(summary["artifacts"]["failed_responses_count"])
 
@@ -168,19 +168,19 @@ class TestARunMissingItsCostReportSaysSoInsteadOfShowingZero(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_cost_is_none_not_zero(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertIsNone(summary["cost_usd"])
 
     def test_the_cost_report_artefacts_are_marked_absent(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertIsNone(summary["artifacts"]["cost_report_json"])
         self.assertIsNone(summary["artifacts"]["cost_report_txt"])
 
     def test_fields_that_are_available_are_still_reported(self):
         # Missing cost must not blank out the rest of the summary.
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(summary["query"], "Name one failure mode.")
         self.assertEqual(summary["combinations_succeeded"], 1)
@@ -207,7 +207,7 @@ class TestARunWithOnlyOneFileStillReportsWhatItHas(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_the_query_falls_back_to_isee_result_md(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(
             summary["query"],
@@ -215,7 +215,7 @@ class TestARunWithOnlyOneFileStillReportsWhatItHas(unittest.TestCase):
         )
 
     def test_everything_without_a_surviving_file_is_none_not_a_guess(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertIsNone(summary["combinations_total"])
         self.assertIsNone(summary["combinations_succeeded"])
@@ -223,12 +223,12 @@ class TestARunWithOnlyOneFileStillReportsWhatItHas(unittest.TestCase):
         self.assertIsNone(summary["cost_usd"])
 
     def test_only_the_one_surviving_artefact_has_a_path(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
         artifacts = summary["artifacts"]
 
         self.assertEqual(
             artifacts["isee_result_md"],
-            "data/output/run_20260902_222121/isee_result.md",
+            f"{summary['location']}/isee_result.md",
         )
         self.assertIsNone(artifacts["metadata"])
         self.assertIsNone(artifacts["run_summary"])
@@ -259,7 +259,7 @@ class TestANewFormatCombinationsCsvWithAStatusColumn(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_succeeded_and_failed_are_read_from_the_status_column(self):
-        summary = summarize_run(self.run_dir)
+        summary = summarize_run(self.run_dir, self.root)
 
         self.assertEqual(summary["combinations_total"], 3)
         self.assertEqual(summary["combinations_succeeded"], 1)
@@ -398,3 +398,62 @@ class TestTheRunsPageRoute(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestBothOutputLayoutsAreListed(unittest.TestCase):
+    """The two entry points write to different places, and the archive must show
+    both.
+
+    app.py creates data/output/run_TIMESTAMP before launching the subprocess;
+    main.py's own constructor computes data/output/YYYY-MM/weekN/run_TIMESTAMP. So
+    a run started in the browser lands flat and a run started at the command line
+    lands nested. Measured on 05.09.2026, before this was handled: the archive
+    listed seven runs and omitted two that were on disk -- an inventory that looked
+    complete while being partial, in the very page written to expose that failure.
+
+    Unifying the layouts is the real repair; it needs a reviewed plan (CLAUDE.md
+    requires one for changes to the run output layout), so the reader takes the disk
+    as it is.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.flat = self.root / "run_20260905_120000"
+        self.nested = self.root / "2026-09" / "week1" / "run_20260905_130000"
+        for run in (self.flat, self.nested):
+            run.mkdir(parents=True)
+            (run / "isee_result.md").write_text("# result\n", encoding="utf-8")
+            raw = run / "raw_responses"
+            raw.mkdir()
+            (raw / "01_x.md").write_text("x", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_a_nested_run_is_listed_too(self):
+        listed = {s["run_id"] for s in list_run_summaries(self.root)}
+        self.assertIn("run_20260905_130000", listed,
+                      "a command-line run was left out of the archive")
+        self.assertIn("run_20260905_120000", listed)
+
+    def test_a_nested_run_links_to_where_it_actually_is(self):
+        summaries = {s["run_id"]: s for s in list_run_summaries(self.root)}
+        nested = summaries["run_20260905_130000"]
+        self.assertTrue(
+            nested["location"].endswith("2026-09/week1/run_20260905_130000"),
+            f"location must be the real path, got {nested['location']}")
+        self.assertEqual(nested["artifacts"]["isee_result_md"],
+                         f"{nested['location']}/isee_result.md")
+
+    def test_a_nested_run_says_why_the_explorer_is_missing(self):
+        """Silence and unavailability look identical; only one is a bug."""
+        summaries = {s["run_id"]: s for s in list_run_summaries(self.root)}
+        nested = summaries["run_20260905_130000"]["artifacts"]
+        flat = summaries["run_20260905_120000"]["artifacts"]
+
+        self.assertIsNone(nested["cognitive_diversity_explorer_url"])
+        self.assertEqual(nested["explorer_unavailable_reason"], "nested-layout")
+
+        self.assertEqual(flat["cognitive_diversity_explorer_url"],
+                         "/cognitive_diversity_explorer/run_20260905_120000")
+        self.assertIsNone(flat["explorer_unavailable_reason"])

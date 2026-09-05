@@ -237,6 +237,10 @@
         missing: { en: 'missing', de: 'fehlt' },
         explore: { en: 'Explore responses', de: 'Antworten erkunden' },
         rawResponses: { en: 'raw responses', de: 'Rohantworten' },
+        explorerNested: {
+            en: 'Explorer unavailable for this run (command-line runs are stored in a nested folder the explorer cannot address)',
+            de: 'Explorer für diesen Lauf nicht verfügbar (Kommandozeilenläufe liegen in einem verschachtelten Ordner, den der Explorer nicht adressieren kann)',
+        },
         noRuns: { en: 'No runs found under data/output yet.', de: 'Noch keine Läufe unter data/output gefunden.' },
         loadError: { en: 'Could not load the run list.', de: 'Die Laufliste konnte nicht geladen werden.' },
         loaded: (n) => currentLang === 'de' ? `${n} Lauf(e) geladen.` : `${n} run(s) loaded.`,
@@ -306,11 +310,17 @@
             return `<a href="${href}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
         });
 
+        const count = run.artifacts.raw_responses_count;
+        const countLabel = count !== null && count !== undefined ? ` (${count} ${t('rawResponses')})` : '';
         if (run.artifacts.cognitive_diversity_explorer_url) {
-            const count = run.artifacts.raw_responses_count;
-            const countLabel = count !== null && count !== undefined ? ` (${count} ${t('rawResponses')})` : '';
             items.unshift(
                 `<a href="${run.artifacts.cognitive_diversity_explorer_url}">${t('explore')}${countLabel}</a>`
+            );
+        } else if (run.artifacts.explorer_unavailable_reason === 'nested-layout') {
+            // Say why, rather than leaving a gap. A missing link and an unavailable
+            // feature look identical, and only one of them is worth reporting.
+            items.unshift(
+                `<span class="missing" title="${escapeHtml(run.location || '')}">${t('explorerNested')}${countLabel}</span>`
             );
         }
 
@@ -329,7 +339,7 @@
             <div class="run-card">
                 <div class="run-card-header">
                     <span class="run-timestamp">${timestamp}</span>
-                    <span class="run-id">${escapeHtml(run.run_id)}</span>
+                    <span class="run-id" title="${escapeHtml(run.location || '')}">${escapeHtml(run.run_id)}</span>
                 </div>
                 <div class="run-query ${run.query ? '' : 'is-missing'}">${queryHtml}</div>
                 <div class="run-stats">

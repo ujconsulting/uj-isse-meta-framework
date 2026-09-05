@@ -96,17 +96,32 @@ def parse_run_timestamp(run_id: str) -> Optional[str]:
 
 
 def list_run_directories(output_dir: Path) -> List[Path]:
-    """Top-level run_* directories under output_dir, newest first.
+    """Every run_* directory under output_dir, at any depth, newest first.
 
-    Deliberately non-recursive - see the module docstring's point about the
-    nested data/output/2026-09/week1/... layout, which must stay invisible here.
-    Sorting by name (not mtime) is intentional: the timestamp is baked into the
-    name and sorts identically, but mtime would put back "newest" for a run
-    whose files were merely touched later.
+    This searched only the top level at first, on the assumption that the nested
+    data/output/YYYY-MM/weekN/ tree was an abandoned layout. It is not abandoned:
+    THE TWO ENTRY POINTS STILL WRITE TO DIFFERENT PLACES. app.py creates
+    data/output/run_TIMESTAMP before launching the subprocess, while main.py's own
+    constructor computes data/output/YYYY-MM/weekN/run_TIMESTAMP. So every run
+    started from the web interface lands flat and every run started from the command
+    line lands nested.
+
+    A top-level-only search therefore produced an archive that looked complete and
+    silently omitted every CLI run - the same failure this branch keeps finding, this
+    time in code written to expose it. Measured on 05.09.2026: seven runs listed, two
+    on disk not listed.
+
+    Unifying the two layouts is the actual repair, and it is not made here: CLAUDE.md
+    requires a reviewed plan for changes to the run output layout, and this is a
+    reader. Until then the reader takes the disk as it is.
+
+    Sorting by name is intentional: the timestamp is baked into the name and sorts
+    identically, while mtime would promote a run whose files were merely touched
+    later.
     """
     if not output_dir.exists():
         return []
-    runs = [p for p in output_dir.iterdir() if is_run_directory(p)]
+    runs = [p for p in output_dir.rglob("run_*") if is_run_directory(p)]
     runs.sort(key=lambda p: p.name, reverse=True)
     return runs
 
@@ -236,12 +251,19 @@ def _count_combinations(run_dir: Path) -> Dict[str, Optional[int]]:
     return {"total": total, "succeeded": succeeded, "failed": failed}
 
 
-def _artifact_paths(run_dir: Path, run_id: str) -> Dict[str, Optional[Any]]:
+def _artifact_paths(run_dir: Path, location: str, flat: bool) -> Dict[str, Optional[Any]]:
     """Which known artefact files exist for this run.
 
-    Each path is relative to data/output, in the exact shape the existing
-    `/api/download-file?path=...` route already accepts (app.py restricts that
-    route to paths under data/output, so this format is not a new contract).
+    `location` is the run's path relative to the repository root, with forward
+    slashes - "data/output/run_X" for a run started from the web interface,
+    "data/output/2026-09/week1/run_X" for one started from the command line. It is
+    passed in rather than rebuilt from the run id because those two layouts exist
+    side by side; building it from the id alone produced download links that
+    pointed at the flat layout for runs that are not in it.
+
+    That shape is what the existing `/api/download-file?path=...` route already
+    accepts (app.py restricts it to paths under data/output), so this is not a new
+    contract.
     A value of None means the file does not exist for this run - the template
     is expected to render that as "missing", never silently skip the row, per
     this task's honesty requirement.
@@ -250,11 +272,11 @@ def _artifact_paths(run_dir: Path, run_id: str) -> Dict[str, Optional[Any]]:
 
     for key, filename in _SINGLE_FILE_ARTIFACTS.items():
         exists = (run_dir / filename).exists()
-        artifacts[key] = f"data/output/{run_id}/{filename}" if exists else None
+        artifacts[key] = f"{location}/{filename}" if exists else None
 
     for key, pattern in _GLOB_ARTIFACTS.items():
         matches = sorted(run_dir.glob(pattern))
-        artifacts[key] = f"data/output/{run_id}/{matches[-1].name}" if matches else None
+        artifacts[key] = f"{location}/{matches[-1].name}" if matches else None
 
     raw_dir = run_dir / "raw_responses"
     if raw_dir.is_dir():
@@ -265,8 +287,21 @@ def _artifact_paths(run_dir: Path, run_id: str) -> Dict[str, Optional[Any]]:
     # The Cognitive Diversity Explorer is its own page (app.py's
     # /cognitive_diversity_explorer/<run_id>) - link into it rather than
     # rebuilding any part of it here, per this task's design decision.
+    #
+    # It can only be offered for a run in the flat layout. Its route, and the two
+    # API routes the page then calls, take a run id that Flask's default converter
+    # will not let contain a slash, and /api/raw-response validates that id against
+    # a strict run_YYYYMMDD_HHMMSS pattern. A nested CLI run therefore cannot be
+    # addressed at all today.
+    #
+    # The template says so rather than omitting the link, because a missing link and
+    # an unavailable feature look identical, and only one of them is a bug worth
+    # reporting. The real repair is one layout, which needs a reviewed plan.
     artifacts["cognitive_diversity_explorer_url"] = (
-        f"/cognitive_diversity_explorer/{run_id}" if raw_count else None
+        f"/cognitive_diversity_explorer/{run_dir.name}" if raw_count and flat else None
+    )
+    artifacts["explorer_unavailable_reason"] = (
+        "nested-layout" if raw_count and not flat else None
     )
 
     failed_dir = run_dir / "failed_responses"
@@ -279,7 +314,7 @@ def _artifact_paths(run_dir: Path, run_id: str) -> Dict[str, Optional[Any]]:
     return artifacts
 
 
-def summarize_run(run_dir: Path) -> Dict[str, Any]:
+def summarize_run(run_dir: Path, output_dir: Optional[Path] = None) -> Dict[str, Any]:
     """Read one run directory and return a plain dict describing it.
 
     Returns {"run_id": ..., "is_run": False} for a directory that is not named
@@ -296,16 +331,33 @@ def summarize_run(run_dir: Path) -> Dict[str, Any]:
 
     combinations = _count_combinations(run_dir)
 
+    # Where this run actually is, relative to the repository root and with forward
+    # slashes on every platform, so the browser gets one shape regardless of what
+    # os.sep happens to be.
+    base = Path(output_dir) if output_dir is not None else Path("data/output")
+    try:
+        relative = run_dir.resolve().relative_to(base.resolve())
+        location = f"{base.as_posix()}/{relative.as_posix()}"
+        # "flat" means sitting directly in the output directory, which is where the
+        # web interface puts a run and the only shape the explorer routes can
+        # address. Decided on path components against the base, never by counting
+        # slashes in the string -- a run under an absolute base has plenty of those.
+        flat = len(relative.parts) == 1
+    except ValueError:
+        location = run_dir.as_posix()
+        flat = False
+
     return {
         "run_id": run_id,
         "is_run": True,
+        "location": location,
         "timestamp": parse_run_timestamp(run_id),
         "query": _extract_query(run_dir),
         "combinations_total": combinations["total"],
         "combinations_succeeded": combinations["succeeded"],
         "combinations_failed": combinations["failed"],
         "cost_usd": _extract_cost(run_dir),
-        "artifacts": _artifact_paths(run_dir, run_id),
+        "artifacts": _artifact_paths(run_dir, location, flat),
     }
 
 
@@ -316,4 +368,5 @@ def list_run_summaries(output_dir: Path) -> List[Dict[str, Any]]:
     only to call this and jsonify the result, which is what keeps it thin per
     this task's separation requirement.
     """
-    return [summarize_run(run_dir) for run_dir in list_run_directories(output_dir)]
+    return [summarize_run(run_dir, output_dir)
+            for run_dir in list_run_directories(output_dir)]
