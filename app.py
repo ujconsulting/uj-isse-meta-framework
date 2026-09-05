@@ -47,6 +47,32 @@ from openrouter_rankings_service import OpenRouterRankingsService
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.urandom(24)
 
+# The session cookie carries an opaque id and nothing else -- see _session_api_keys
+# below for what used to be in it. SameSite=Lax so another site's page cannot make
+# the browser send it along with a cross-site request; HttpOnly (Flask's default,
+# stated here so it is not lost to a future edit) so page scripts cannot read it.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
+
+
+@app.before_request
+def _ensure_a_session_id():
+    """Give every visitor a session id, on any route.
+
+    It was assigned only by /demo. The primary interface is /isee-ui, which never
+    passed through there, so its visitors had none: every analytics line read
+    `user_session=anonymous`, and the per-session API key store below would have had
+    no key to file anything under.
+    """
+    if 'session_id' not in session:
+        session['session_id'] = secrets.token_urlsafe(16)
+        demo.logger.info(
+            f"USER_ANALYTICS: event_type=session_started "
+            f"user_session={session['session_id']} "
+            f"timestamp={datetime.now().isoformat()}")
+
 # Configure logging for debugging.
 #
 # encoding="utf-8" on the file handler is not cosmetic. This module logs the child
@@ -1705,16 +1731,7 @@ class ISEEWebDemo:
     
     def _detect_apis(self) -> Dict[str, Any]:
         """Detect available API providers and Ollama models (adapted from command wizard)"""
-        # Get session API key if available (only within request context)
-        session_api_key = None
-        try:
-            if 'openrouter_api_key' in session:
-                session_api_key = session['openrouter_api_key']
-        except RuntimeError:
-            # Outside request context - no session access
-            pass
-        
-        return self._detect_apis_with_session_key(session_api_key)
+        return self._detect_apis_with_session_key(_recall_api_key())
     
     def _detect_apis_with_session_key(self, session_api_key: str = None) -> Dict[str, Any]:
         """Detect available API providers and Ollama models with optional session key"""
@@ -1794,7 +1811,10 @@ class ISEEWebDemo:
         
         # Store the key based on storage method
         if storage_method == "session":
-            session['openrouter_api_key'] = api_key
+            if not _remember_api_key(api_key):
+                result["message"] = ("No session to store the key in. Reload the "
+                                     "page and try again.")
+                return result
             result["message"] = "OpenRouter API key set for this session!"
         elif storage_method == "environment":
             os.environ["OPENROUTER_API_KEY"] = api_key
@@ -1814,7 +1834,7 @@ class ISEEWebDemo:
             import requests
             
             # Use a fast, cost-effective model for domain analysis
-            api_key = session.get('openrouter_api_key') or os.environ.get('OPENROUTER_API_KEY')
+            api_key = _recall_api_key() or os.environ.get('OPENROUTER_API_KEY')
             if not api_key:
                 self.logger.warning("No OpenRouter API key available for domain suggestion")
                 return self._get_fallback_domains()
@@ -1966,15 +1986,10 @@ demo = ISEEWebDemo()
 @app.route('/')
 def index():
     """Main demo page"""
-    # Generate session ID for user behavior analytics if not exists
-    if 'session_id' not in session:
-        import uuid
-        session['session_id'] = str(uuid.uuid4())[:8]  # Short session ID
-        
-        # Track new session start
-        demo.logger.info(f"USER_ANALYTICS: event_type=session_started user_session={session['session_id']} "
-                        f"timestamp={datetime.now().isoformat()}")
-    
+    # The session id, and the line recording that a session began, are handled by
+    # _ensure_a_session_id for every route. Doing it here meant that a visitor who
+    # went straight to /isee-ui -- which is the interface the documentation tells
+    # them to open -- never started a session at all.
     return render_template('demo.html')
 
 @app.route('/isee-ui')
@@ -2195,6 +2210,43 @@ MAX_RUNS_PER_HOUR = int(os.environ.get("ISEE_MAX_RUNS_PER_HOUR", "10"))
 _run_starts: List[float] = []
 _run_starts_lock = threading.Lock()
 
+# API keys a visitor supplies, held in this process and keyed by their session id.
+#
+# They used to go into `session['openrouter_api_key']`, and a Flask session is a
+# cookie that is SIGNED, not encrypted: the signature stops the visitor editing it,
+# and nothing stops anyone reading it. So the key -- which spends real money -- sat
+# base64-encoded in the browser's cookie jar and travelled on every request, over
+# plain HTTP, including requests for static files.
+#
+# The cookie now carries only the opaque session id it already had. The key stays
+# here, dies with the process, and never reaches the wire. That the store is
+# per-process is not a new limitation: `execution_status` already is, which is why
+# the deployment runs a single worker.
+_session_api_keys: Dict[str, str] = {}
+_session_api_keys_lock = threading.Lock()
+
+
+def _remember_api_key(key: str) -> bool:
+    """Hold a visitor's API key for their session. False if there is no session."""
+    identifier = session.get('session_id')
+    if not identifier:
+        return False
+    with _session_api_keys_lock:
+        _session_api_keys[identifier] = key
+    return True
+
+
+def _recall_api_key() -> Optional[str]:
+    """This visitor's API key, or None. Safe outside a request context."""
+    try:
+        identifier = session.get('session_id')
+    except RuntimeError:
+        return None  # no request context, so no visitor
+    if not identifier:
+        return None
+    with _session_api_keys_lock:
+        return _session_api_keys.get(identifier)
+
 
 def _claim_a_run_slot() -> Optional[str]:
     """Reserve permission to start one analysis, or say why it is refused.
@@ -2259,9 +2311,10 @@ def api_execute():
                     f"query_length={query_length} frameworks_count={frameworks_count} "
                     f"domains_count={domains_count} timestamp={datetime.now().isoformat()}")
     
-    # Get session API key if available
-    session_api_key = session.get('openrouter_api_key', None)
-    
+    # Read the key here, in the request, and hand it to the thread: the thread has
+    # no request context, so it could not look it up for itself.
+    session_api_key = _recall_api_key()
+
     # Start execution in background thread
     thread = threading.Thread(
         target=demo.execute_isee_command,
@@ -2294,8 +2347,8 @@ def api_analyze_test():
                     f"execution_id={execution_id} max_combinations={parameters.get('max_combinations', 10)} "
                     f"timestamp={datetime.now().isoformat()}")
     
-    # Get session API key if available
-    session_api_key = session.get('openrouter_api_key', None)
+    # Read the key here, in the request; the worker thread has no session.
+    session_api_key = _recall_api_key()
     
     # Start execution in background thread
     thread = threading.Thread(
