@@ -748,6 +748,18 @@ class ISEEApplication:
         # Generate query variations
         variations = self.query_generator.generate_variations(query_id, count=query_variations)
         all_queries = [base_query] + variations
+
+        # Keep the generator's own account of how that went, so the run can report it.
+        #
+        # The generator stamps a degradation flag onto each variation's `variables`,
+        # and those are spread into `template.format(...)` -- which silently drops any
+        # key the template does not use. Measured 05.09.2026: the flag reached the
+        # prompt, the CSV and the report exactly nowhere, so a run whose dynamic
+        # variation system had failed looked identical to one where it worked. A
+        # commit message in this session claimed otherwise. It was wrong; this is the
+        # correction.
+        self.query_generation_report = getattr(
+            self.query_generator, 'last_generation_report', None)
         
         # Get domains - handle both static and dynamic domains
         if domain_ids:
@@ -2892,6 +2904,26 @@ def generate_metadata_header(args, app, execution_start_time, execution_end_time
         ""
     ])
     
+    # A degraded run must say so in its own deliverable, not only in a log.
+    report = getattr(app, "query_generation_report", None) or {}
+    if report.get("degraded_to_static"):
+        header_lines.extend([
+            "",
+            "## Query variation degraded",
+            "",
+            "The dynamic query variation system failed and the run fell back to",
+            "static variations. The prompts that went to the models are therefore",
+            "not the ones this run was configured to send.",
+            "",
+            f"**Reason:** {report.get('degradation_reason', 'not recorded')}",
+        ])
+    if report.get("shortfall"):
+        header_lines.extend([
+            "",
+            f"**Fewer variations than requested:** {report['shortfall']} short. "
+            "Duplicate elimination exhausted the strategy space.",
+        ])
+
     return "\n".join(header_lines)
 
 
