@@ -23,6 +23,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _strip_terminal_punctuation(text: str) -> str:
+    """Drop a trailing '?', '.', or '!' before splicing on another clause.
+
+    Composing "<base>, <addition>?" verbatim produced prompts like
+    "...on a budget?, within a tight budget?" whenever the base question already ended
+    in '?' -- and that malformed text is what went out in the paid model call.
+    """
+    return text.rstrip("?!.")
+
+
 class Query:
     """Represents a specific user prompt or question."""
     
@@ -80,6 +91,9 @@ class QueryGenerator:
         self.base_queries: Dict[str, Query] = {}
         self.variations: Dict[str, List[Query]] = {}
         self.use_dynamic_variations = use_dynamic_variations and DYNAMIC_VARIATIONS_AVAILABLE
+        # Populated by generate_variations(); see that method's docstring. None until
+        # the first call, so a caller can tell "never ran" apart from "ran cleanly".
+        self.last_generation_report: Optional[Dict[str, Any]] = None
         
         # Initialize dynamic variator if available and enabled
         if self.use_dynamic_variations:
@@ -109,35 +123,87 @@ class QueryGenerator:
     
     def generate_variations(self, query_id: str, count: int = 3) -> List[Query]:
         """Generate variations of a base query.
-        
+
         Args:
             query_id: ID of the base query.
-            count: Number of variations to generate.
-            
+            count: Number of variations to generate. This is a request, not a
+                guarantee — see `last_generation_report` below.
+
         Returns:
-            List of query variations.
-            
+            List of query variations. May contain fewer than `count` entries; check
+            `self.last_generation_report["shortfall"]` rather than assuming the length.
+
         Raises:
             KeyError: If the base query does not exist.
+
+        Side effect:
+            Sets `self.last_generation_report`, a dict describing what actually
+            happened (dynamic vs. static, any shortfall, any degradation). A silent
+            fallback here once meant a run proceeded on materially different prompts
+            while looking identical to a full success — this report, plus the
+            per-Query markers below, are what make that visible instead.
         """
         if query_id not in self.base_queries:
             raise KeyError(f"No base query with ID '{query_id}'")
-        
+
         base_query = self.base_queries[query_id]
-        
+
+        used_dynamic = False
+        degraded_to_static = False
+        degradation_reason: Optional[str] = None
+
         # Use dynamic variation system if available and enabled
         if self.use_dynamic_variations and self.dynamic_variator:
             try:
                 variations = self._create_dynamic_variations(base_query, count)
+                used_dynamic = True
                 logger.info(f"Generated {len(variations)} dynamic variations for query: {base_query.text[:50]}...")
             except Exception as e:
+                # A log line alone let a run proceed on materially different (static,
+                # template-based) prompts while reporting success like nothing happened.
+                # Stamp the degradation onto the queries themselves further down, and
+                # onto last_generation_report, so a caller can see it without having
+                # to be the one tailing this logger.
+                degraded_to_static = True
+                degradation_reason = str(e)
                 logger.warning(f"Dynamic variation failed: {e}. Falling back to static variations.")
                 variations = self._create_variations(base_query, count)
         else:
             # Fall back to legacy static variations
             variations = self._create_variations(base_query, count)
             logger.info(f"Generated {len(variations)} static variations for query: {base_query.text[:50]}...")
-        
+
+        shortfall = max(0, count - len(variations))
+        if shortfall:
+            # _create_variations caps its attempts (count * 3) and drops duplicates, so
+            # it can under-deliver silently. The docstring promises `count` variations;
+            # this is the explicit report that promise was not kept, instead of the
+            # caller discovering it later from a shorter-than-expected combination list.
+            logger.warning(
+                f"generate_variations requested {count} variations for query "
+                f"'{query_id}' but only produced {len(variations)} unique ones "
+                f"(shortfall={shortfall}); the duplicate-elimination cap was hit "
+                "before reaching the requested count."
+            )
+
+        if degraded_to_static:
+            # main.py spreads `query.variables` into every combination dict
+            # (see main.py:1443, 1631), so this is the channel that survives into the
+            # run's own output — not just a log line a caller has to know to watch.
+            for variation in variations:
+                variation.variables["dynamic_variation_degraded"] = True
+                variation.variables["degradation_reason"] = degradation_reason
+
+        self.last_generation_report = {
+            "query_id": query_id,
+            "requested_count": count,
+            "returned_count": len(variations),
+            "shortfall": shortfall,
+            "used_dynamic_variations": used_dynamic,
+            "degraded_to_static": degraded_to_static,
+            "degradation_reason": degradation_reason,
+        }
+
         # Store and return the variations
         self.variations[query_id].extend(variations)
         return variations
@@ -242,7 +308,7 @@ class QueryGenerator:
         ]
         
         constraint = random.choice(constraints)
-        text = f"{base_query.text}, {constraint}?"
+        text = f"{_strip_terminal_punctuation(base_query.text)}, {constraint}?"
         
         # Create a new query
         return Query(
@@ -306,7 +372,7 @@ class QueryGenerator:
         ]
         
         context = random.choice(contexts)
-        text = f"{base_query.text}, {context}?"
+        text = f"{_strip_terminal_punctuation(base_query.text)}, {context}?"
         
         # Create a new query
         return Query(
@@ -317,33 +383,43 @@ class QueryGenerator:
     
     def _rephrase_question(self, base_query: Query) -> Query:
         """Strategy: Rephrase the question with similar meaning.
-        
+
         Args:
             base_query: The base query.
-            
+
         Returns:
             A new query with rephrased question.
         """
-        # Extract the core subject from the query (very simplified approach)
-        text = base_query.text.lower()
-        
-        # Simple patterns for rephrasing
-        if text.startswith("how might we"):
-            rephrased = text.replace("how might we", "what are effective ways to")
-        elif text.startswith("what are"):
-            rephrased = text.replace("what are", "how might we identify")
-        elif text.startswith("how can"):
-            rephrased = text.replace("how can", "what strategies would allow us to")
-        elif text.startswith("what strategies"):
-            rephrased = text.replace("what strategies", "how might we develop approaches to")
-        else:
+        # Match the lead-in case-insensitively, but splice the REPLACEMENT onto the
+        # untouched original text. Lowercasing the whole question (the old approach)
+        # went out in the actual prompt sent to a paid model call, corrupting acronyms,
+        # product names, and any other case-sensitive identifier in the question.
+        original_text = base_query.text
+        lowered = original_text.lower()
+
+        lead_in_replacements = [
+            ("how might we", "what are effective ways to"),
+            ("what are", "how might we identify"),
+            ("how can", "what strategies would allow us to"),
+            ("what strategies", "how might we develop approaches to"),
+        ]
+
+        rephrased = None
+        for lead_in, replacement in lead_in_replacements:
+            if lowered.startswith(lead_in):
+                # Only the recognized lead-in is swapped; everything after it is the
+                # user's original text, case intact.
+                rephrased = replacement + original_text[len(lead_in):]
+                break
+
+        if rephrased is None:
             # If no pattern matches, create a more generic rephrasing
-            rephrased = f"What innovative approaches could address the challenge of {text}?"
-        
+            rephrased = f"What innovative approaches could address the challenge of {original_text}?"
+
         # Ensure it ends with a question mark
         if not rephrased.endswith("?"):
             rephrased += "?"
-        
+
         # Capitalize the first letter
         rephrased = rephrased[0].upper() + rephrased[1:]
         
