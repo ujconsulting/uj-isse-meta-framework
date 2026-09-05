@@ -1945,6 +1945,17 @@ def isee_ui():
     """Serve the hybrid UI interface with dynamic model loading"""
     return send_file('isee-ui.html')
 
+@app.route('/favicon.ico')
+def favicon():
+    """Browsers request /favicon.ico by default regardless of any <link rel="icon">
+    tag, and isee-ui.html (the primary interface) has none. Without this route that
+    request 404s and is the only console error the web interface produces. Reuse the
+    existing academic-gradient mark instead of shipping a second icon asset."""
+    return send_file(
+        os.path.join(app.static_folder, 'favicon.svg'),
+        mimetype='image/svg+xml'
+    )
+
 @app.route('/api/frameworks')
 def api_frameworks():
     """Get cognitive frameworks data"""
