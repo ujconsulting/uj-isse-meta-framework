@@ -511,12 +511,46 @@ class ISEEApplication:
         os.makedirs("data", exist_ok=True)
         os.makedirs("data/output", exist_ok=True)
         os.makedirs("data/state", exist_ok=True)
-        os.makedirs(self.run_output_dir, exist_ok=True)
+        # The run directory is NOT created here. Constructing this object is not the
+        # same as starting a run, and several callers only ever construct it:
+        # /api/preview-queries builds a whole ISEEApplication to show the user what
+        # would be asked, and `--list-domains` builds one to read the domain list.
+        #
+        # Creating it eagerly left an empty directory behind on every one of those.
+        # Counted on 05.09.2026: 724 empty run directories under data/output, 264 of
+        # them from the previous two hours alone, and the newest one timestamped to
+        # the second in which a test had merely imported the module. They also make
+        # the run archive lie -- a preview is indistinguishable from a run that
+        # produced nothing, which is a real and different failure.
+        self._run_dir_created = False
         
         # Load configuration if provided
         if config_path:
             self.load_config(config_path)
     
+    def ensure_output_directory(self) -> str:
+        """Create this run's output directory, once, and return its path.
+
+        Called by everything that writes into the run directory rather than by
+        __init__, so that merely constructing the application leaves no trace on
+        disk. Idempotent and cheap: after the first call it is a flag test, and
+        `exist_ok=True` keeps a caller that got there first from being an error.
+        """
+        # The directory the writers actually write into. run_output_dir and
+        # output_directory are set to the same value by __init__ and by an explicit
+        # --output-directory, but only the latter is what _save_raw_response and the
+        # query export join their paths against, and ensuring one while writing to
+        # the other would be a fine way to reintroduce this bug.
+        directory = getattr(self, "output_directory", None) or self.run_output_dir
+
+        # getattr with a default rather than self._run_dir_created: tests construct
+        # this object with __new__ to exercise a single method without a full run,
+        # and a helper that every writer calls must not be the reason that fails.
+        if not getattr(self, "_run_dir_created", False) or not os.path.isdir(directory):
+            os.makedirs(directory, exist_ok=True)
+            self._run_dir_created = True
+        return directory
+
     def load_config(self, config_path: str) -> None:
         """Load configuration from a file.
         
@@ -1120,6 +1154,7 @@ class ISEEApplication:
         try:
             failed = result.get("status") == "failed" or result.get("response") is None
             subdir = "failed_responses" if failed else "raw_responses"
+            self.ensure_output_directory()
             responses_dir = Path(self.output_directory) / subdir
             responses_dir.mkdir(exist_ok=True)
 
@@ -1422,6 +1457,7 @@ class ISEEApplication:
                     'use_real_models': use_real_models
                 }
                 
+                self.ensure_output_directory()
                 export_paths = auto_export_queries(combinations, self.output_directory, export_metadata, self)
                 print(f"Query details exported:")
                 print(f"  📋 CSV: {os.path.basename(export_paths['csv'])}")
@@ -2979,10 +3015,28 @@ def update_latest_symlink(run_output_dir: str) -> None:
     pointer = os.path.join(output_base, "latest.txt")
 
     try:
-        if run_output_dir.startswith(output_base):
-            relative_path = os.path.relpath(run_output_dir, output_base)
-        else:
-            relative_path = os.path.basename(run_output_dir)
+        # Containment decided on path components, not on the string.
+        #
+        # This compared `run_output_dir.startswith(output_base)`, and the two are
+        # built differently: os.path.join makes `data\output` on Windows while the
+        # run directory is assembled from an f-string as `data/output/2026-09/...`.
+        # The test was therefore False for every CLI run, and the pointer fell back
+        # to the bare basename -- `run_20260905_124411` for a directory that really
+        # lives at `data/output/2026-09/week1/run_20260905_124411`. Measured on
+        # 05.09.2026: latest.txt named a path that did not exist.
+        #
+        # A pointer to a missing directory is the failure this file was rewritten to
+        # avoid, in a new disguise: it looks answered, and every reader of it fails
+        # somewhere else.
+        try:
+            relative_path = str(
+                Path(run_output_dir).resolve().relative_to(Path(output_base).resolve())
+            )
+        except ValueError:
+            # Genuinely outside data/output -- an explicit --output-directory. The
+            # basename is all that is meaningful then, and it is what the pointer
+            # has always recorded for that case.
+            relative_path = os.path.basename(os.path.normpath(run_output_dir))
 
         os.makedirs(output_base, exist_ok=True)
         # Write beside the target and rename over it: os.replace is atomic on both
@@ -3229,6 +3283,7 @@ def main():
                 # Determine output path - either user-specified or auto-generated in run-specific directory
                 output_path = args.output_file
                 if not output_path:
+                    app.ensure_output_directory()
                     # Use .md extension instead of .markdown for better compatibility
                     extension = "md" if args.output_format == "markdown" else args.output_format
                     filename = f"isee_result.{extension}"
@@ -3533,6 +3588,7 @@ def main():
             # Determine output path - either user-specified or auto-generated in run-specific directory
             output_path = args.output_file
             if not output_path:
+                app.ensure_output_directory()
                 # Use .md extension instead of .markdown for better compatibility
                 extension = "md" if args.output_format == "markdown" else args.output_format
                 filename = f"isee_result.{extension}"
@@ -3566,6 +3622,7 @@ def main():
             # Generate additional reports if requested
             if args.generate_reports:
                 print("\nGenerating detailed reports...")
+                app.ensure_output_directory()
                 report_files = generate_reports(
                     app=app,
                     args=args,
@@ -3618,7 +3675,11 @@ def main():
         app.save_state(args.save_state)
     
     # Update 'latest' symlink to point to this run
-    if hasattr(app, 'run_output_dir') and app.run_output_dir:
+    # ...but only if this run actually made a directory. A dry run or a
+    # `--list-domains` invocation writes nothing, and a pointer to a directory that
+    # does not exist is worse than no pointer: every reader of it then fails
+    # somewhere else, far from the cause.
+    if getattr(app, '_run_dir_created', False) and app.run_output_dir:
         update_latest_symlink(app.run_output_dir)
 
     # The exit code must reflect the analysis, not merely that the process reached the
