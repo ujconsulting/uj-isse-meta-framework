@@ -4,7 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is ISEE?
 
-The Idea Synthesis and Extraction Engine (ISEE) is a systematic multi-perspective research platform that orchestrates 300+ AI models through diverse cognitive frameworks to discover breakthrough insights. Instead of single AI interactions, ISEE runs 60 comprehensive calls across 14 AI models and 10 cognitive frameworks to reveal perspectives hiding in the spaces between different ways of thinking.
+The Idea Synthesis and Extraction Engine (ISEE) is a multi-perspective research
+platform. A question is put to many models through many cognitive frameworks at once,
+and the answers are scored and synthesised — the point being the perspectives that
+appear between different ways of thinking, not any single reply.
+
+**The numbers, measured 03.09.2026 against the configuration and the code:**
+
+| | |
+| --- | --- |
+| Models configured | **14**, one per vendor house (anthropic, openai, google, x-ai, deepseek, qwen, z-ai, moonshotai, mistralai, nvidia, minimax, upstage, tencent, meta) |
+| Offered in the interface | all 14, with 8 preselected (`ui_priority: strategic`) |
+| Cognitive frameworks | **11** |
+| A full run | 66 calls, roughly $0.31 |
+| A test run | 11 calls, roughly $0.12 |
+
+OpenRouter is the gateway, not a vendor: "300+ models" describes its catalogue, not
+this project's portfolio.
 
 ## Development Commands
 
@@ -58,11 +74,17 @@ python app.py
 - **Live API Calls Visualization**: Real-time display of individual combinations during execution
 - **Enhanced Progress Monitoring**: Shows "LLM + Cognitive Framework + Knowledge Domain" per API call
 - **Professional UI**: Card-based active calls grid with animations and status indicators
-- **COMPLETELY OVERHAULED Scoring System**: Revolutionary evaluation_scoring.py eliminates template failures and buzzword dominance
-- **Template Failure Auto-Disqualification**: Automatically detects and disqualifies placeholder responses (score 0.05)
-- **Enhanced Buzzword Penalty Engine**: Penalizes undefined jargon with -0.60 max penalty for technical audience focus
-- **Quality Gates**: 5-tier filtering system prevents low-quality AI content from reaching final findings
-- **Technical Audience Optimization**: Actionability (20%), Specificity (25%) weights prioritize implementable solutions
+- ⛔ **The quality-gate apparatus below is NOT called by any run.** `main.py` scores
+  with `ScoringFramework.score_text()`; `score_text_with_quality_gates()` has no
+  caller in the run path. Measured 03.09.2026: on the path that runs, a response
+  consisting only of placeholders scores 0.292 and a good one 0.298 — they are
+  indistinguishable. Repairing the gates and then enabling them is planned in
+  `docs/plans/2026-09-03-bewertung-reparieren.md`; until that lands, treat every
+  claim in the next four lines as describing code that exists but does not execute.
+  - *(dormant)* Template failure auto-disqualification — placeholder responses to 0.05
+  - *(dormant)* Buzzword penalty engine, up to -0.60
+  - *(dormant)* Quality gates, five tiers
+  - *(dormant)* Actionability and specificity weighted for a technical audience
 - **Rank-Based Raw Response Files**: Automatic renaming of raw response files with rank prefixes (01_, 02_, etc.) based on evaluation scores for easy identification and sharing of top-performing responses
 - **Enhanced Visual Illumination System**: Fixed parallel execution visual display to accurately reflect true cognitive diversity with improved model/framework matching and duplicate prevention
 - **Cognitive Diversity Explorer**: Revolutionary platform with pixel-perfect design alignment - seamlessly integrated UI for exploring all 66 raw responses with professional enterprise aesthetics and enhanced metadata filtering
@@ -172,7 +194,7 @@ Synthesis & Reporting → Performance Tracking → Analysis Reports
 ## Key Technical Concepts
 
 ### Cognitive Diversity System
-ISEE uses 10 distinct cognitive frameworks to ensure comprehensive analysis:
+ISEE uses **11** distinct cognitive frameworks (counted in the configuration and offered by the interface on 03.09.2026 — this file said 10 and listed 10, omitting Disruption):
 - **Analytical** (🔍) - Systematic problem breakdown
 - **Creative** (💡) - Novel solution generation  
 - **Critical** (⚖️) - Rigorous evaluation and challenges
@@ -183,20 +205,39 @@ ISEE uses 10 distinct cognitive frameworks to ensure comprehensive analysis:
 - **Contrarian** (🔄) - Alternative perspective generation
 - **Historical** (📚) - Past patterns and lessons
 - **Futurist** (🚀) - Forward-looking implications
+- **Disruption** (⚡) - What would make the current approach obsolete
 
 ### Model Distribution Strategy
-- **12 Heterogeneous AI Models** chosen for distinct reasoning capabilities
-- **Balanced Distribution** ensures equal model contribution (prevents dominance)
-- **Provider Diversity**: Claude, GPT-4, Gemini, Llama, and 300+ others via OpenRouter
-- **Graceful Fallback** mechanisms for API failures
+- **14 models, one per vendor house.** Diversity is counted by house, not by model:
+  two Anthropic models are one perspective wearing two names. The houses are listed
+  in the table at the top of this file.
+- **Balanced distribution** so no single model dominates a run.
+- ⚠️ **No silent fallback.** A failed call is recorded as a failure and excluded from
+  scoring and synthesis; it is never replaced by a simulated answer. That behaviour
+  was removed deliberately (`8137f49`) — if you find something that looks like a
+  graceful fallback, it is a defect, not a feature.
 
 ### Quality Assurance System
-**Multi-Criteria Scoring Framework:**
-- Impact (30%) - Transformative potential and scale
-- Novelty (25%) - Innovation and breakthrough thinking  
-- Feasibility (20%) - Practical implementation considerations
-- Comprehensiveness (15%) - Depth and multi-perspective coverage
-- Specificity (10%) - Concrete details and precision
+
+**Multi-criteria scoring — the effective weights, read from the code
+(`create_default_framework`) on 03.09.2026:**
+
+| Criterion | Weight |
+| --- | ---: |
+| Impact | 20.83 % |
+| Feasibility | 20.83 % |
+| Specificity | 20.83 % |
+| Actionability | 16.67 % |
+| Novelty | 12.50 % |
+| Comprehensiveness | 8.33 % |
+| **Total** | **100.00 %** |
+
+⚠️ This file previously carried **three** different answers to this question, none of
+which matched the code or each other. Until `0f5497e` the weights summed to 1.2 while
+`calculate_weighted_score` divided by that total, so a documented 25 % contributed
+20.83 %. The literals were rescaled — every relative proportion and every computed
+score is unchanged — so what is documented is now what applies. **One table. If you
+change the weights, change them here in the same commit.**
 
 ## Development Workflow
 
@@ -239,7 +280,22 @@ The system includes built-in performance tracking and self-analysis capabilities
 - **Unified Billing**: One account for Claude, GPT-4, Gemini, Llama, etc.
 - **Pre-configured Collections**: Carefully curated model portfolios for cognitive diversity
 
-### Globant Enterprise AI Integration - EXPANDED 15-MODEL CONFIGURATION
+### Globant Enterprise AI Integration — INACCESSIBLE FROM THIS ACCOUNT
+
+⛔ **Everything in this section is inherited from upstream and cannot be verified
+here.** This account has no Globant credentials and no way to obtain them: Globant
+Enterprise AI is sales-led, with no self-serve signup and no public price list. A run
+with `--provider globant` or `--provider hybrid` therefore aborts with exit code 2
+rather than pretending.
+
+The model list, the "100 % accessibility" claim and the per-request costs below were
+written by the original author against an account we do not have. They are kept for
+whoever inherits this fork with access — not as anything this project has observed.
+
+Consolidating on OpenRouter and deleting these paths is Route A step 2 in
+`docs/todos/2026-09-02-offene-punkte.md`.
+
+#### Original section, unverified
 - **132 AI Models Available**: Enterprise-grade model portfolio with enhanced security
 - **15 Strategic Models Configured**: Optimized selection providing superior cognitive diversity
 - **8 Provider Path Architecture**: Multiple access routes for enhanced resilience
