@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import re
+import secrets
 import subprocess
 import threading
 import time
@@ -2179,11 +2180,72 @@ def api_preview_queries():
     except Exception as e:
         return jsonify({"error": f"Preview generation failed: {str(e)}"}), 500
 
+# How many analyses may be started, and how close together. Every start spends the
+# owner's money -- roughly $0.31 for a full run -- and nothing stopped a caller from
+# sending a hundred POSTs in a second. The interface has no authentication by
+# design, so the money is protected here or nowhere.
+#
+# The defaults are set so that ordinary use never meets them: three runs at once,
+# ten starts an hour, about $3 an hour at the worst. Raise them with
+# ISEE_MAX_CONCURRENT_RUNS and ISEE_MAX_RUNS_PER_HOUR when a real workload needs
+# more; the point is a ceiling, not this particular ceiling.
+MAX_CONCURRENT_RUNS = int(os.environ.get("ISEE_MAX_CONCURRENT_RUNS", "3"))
+MAX_RUNS_PER_HOUR = int(os.environ.get("ISEE_MAX_RUNS_PER_HOUR", "10"))
+
+_run_starts: List[float] = []
+_run_starts_lock = threading.Lock()
+
+
+def _claim_a_run_slot() -> Optional[str]:
+    """Reserve permission to start one analysis, or say why it is refused.
+
+    Returns None when the run may proceed, otherwise a sentence for the caller.
+    Both limits are checked under one lock, so two simultaneous requests cannot
+    both see the last free slot.
+    """
+    now = time.time()
+    with _run_starts_lock:
+        del _run_starts[:max(0, len(_run_starts) - 1000)]  # bound the list
+        recent = [t for t in _run_starts if now - t < 3600]
+        _run_starts[:] = recent
+
+        running = sum(
+            1 for status in demo.execution_status.values()
+            if status.get("status") == "running")
+        if running >= MAX_CONCURRENT_RUNS:
+            return (f"{running} analyses are already running, which is the limit. "
+                    f"Wait for one to finish, or raise ISEE_MAX_CONCURRENT_RUNS.")
+
+        if len(recent) >= MAX_RUNS_PER_HOUR:
+            oldest = min(recent)
+            minutes = int((3600 - (now - oldest)) / 60) + 1
+            return (f"{len(recent)} analyses have been started in the last hour, "
+                    f"which is the limit. The next slot frees in about {minutes} "
+                    f"minutes, or raise ISEE_MAX_RUNS_PER_HOUR.")
+
+        _run_starts.append(now)
+        return None
+
+
 @app.route('/api/execute', methods=['POST'])
 def api_execute():
     """Execute ISEE command"""
-    parameters = request.json
-    execution_id = f"exec_{int(time.time())}"
+    parameters = request.get_json(silent=True)
+    if not isinstance(parameters, dict):
+        # request.json raises on a malformed body but returns None for a literal
+        # `null`, and every line below assumes a dict.
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    refusal = _claim_a_run_slot()
+    if refusal:
+        demo.logger.warning(f"Refused an analysis: {refusal}")
+        return jsonify({"error": refusal}), 429
+
+    # A timestamp alone collides whenever two runs start in the same second -- the
+    # second one would overwrite the first's status entry, and each would report the
+    # other's progress. The random half also stops a caller guessing the id of a run
+    # they did not start, since knowing one is enough to read its results.
+    execution_id = f"exec_{int(time.time())}_{secrets.token_hex(4)}"
     
     # User Behavior Analytics - Track execution start
     user_session = session.get('session_id', 'anonymous')
@@ -2213,8 +2275,18 @@ def api_execute():
 @app.route('/api/analyze-test', methods=['POST'])
 def api_analyze_test():
     """Execute ISEE test analysis with reduced parameters for testing report generation"""
-    parameters = request.json
-    execution_id = f"test_{int(time.time())}"
+    parameters = request.get_json(silent=True)
+    if not isinstance(parameters, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+
+    # This route runs a smaller analysis, but it is the same subprocess against the
+    # same paid API. It counts against the same ceiling.
+    refusal = _claim_a_run_slot()
+    if refusal:
+        demo.logger.warning(f"Refused a test analysis: {refusal}")
+        return jsonify({"error": refusal}), 429
+
+    execution_id = f"test_{int(time.time())}_{secrets.token_hex(4)}"
     
     # Log test execution
     user_session = session.get('session_id', 'anonymous')

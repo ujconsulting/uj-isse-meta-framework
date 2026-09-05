@@ -2949,7 +2949,15 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    // The server explains a refusal in the body -- which run limit was
+                    // met, and when the next slot frees. Throwing only the status code
+                    // discarded that and left the user with "HTTP 429" and no remedy.
+                    let detail = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const body = await response.json();
+                        if (body && body.error) detail = body.error;
+                    } catch (_) { /* not JSON: the status line is all there is */ }
+                    throw new Error(detail);
                 }
 
                 const result = await response.json();
