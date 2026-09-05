@@ -7,6 +7,7 @@ Minimalist web UI for investor demonstrations showcasing the ISEE configuration 
 import os
 import sys
 import json
+import re
 import subprocess
 import threading
 import time
@@ -371,6 +372,35 @@ class ISEEWebDemo:
             else:
                 flags.extend(["--dynamic-domain", name])
         return flags
+
+    @staticmethod
+    def resolve_inside(base: "Path", *parts: str) -> "Path":
+        """Resolve a path under `base`, or raise ValueError if it escapes.
+
+        Containment is decided AFTER resolution and on path components, never on
+        the string. Two ways the previous checks were got around, both confirmed
+        against the running app on 05.09.2026:
+
+        * `/api/raw-response` rejected ".." and a leading "/". On Windows an
+          absolute drive path (a drive letter, a colon, then the path) contains
+          neither, and `os.path.join` DISCARDS everything before an absolute
+          second argument — so the run directory disappeared and the file was
+          read and returned with HTTP 200.
+        * `/api/download-file` resolved correctly and then compared with
+          `str(path).startswith(str(base))`, so `data/output_backup/...` passes
+          because its name begins with `data/output`.
+
+        `Path.relative_to` compares components, so neither trick survives it.
+        """
+        from pathlib import Path as _Path
+
+        base = _Path(base).resolve()
+        candidate = _Path(base, *parts).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError:
+            raise ValueError(f"path escapes {base}")
+        return candidate
 
     def _is_known_domain(self, identifier: str) -> bool:
         """Can the engine resolve this domain by id or by exact name?
@@ -2442,13 +2472,15 @@ def api_download_file():
     
     # Security: Ensure file is within the output directory
     try:
-        file_path = Path(file_path).resolve()
-        output_dir = Path("data/output").resolve()
-        
-        if not str(file_path).startswith(str(output_dir)):
+        # Component-wise containment. The string comparison this replaces let a
+        # sibling through whenever its name merely began with the allowed one --
+        # 'data/output_backup' beside 'data/output'.
+        try:
+            file_path = ISEEWebDemo.resolve_inside(Path('data/output'), file_path)
+        except ValueError:
             return jsonify({"error": "Access denied: File outside allowed directory"}), 403
-        
-        if not file_path.exists():
+
+        if not file_path.is_file():
             return jsonify({"error": "File not found"}), 404
         
         return send_file(file_path, as_attachment=True, download_name=file_path.name)
@@ -3121,15 +3153,25 @@ def serve_raw_response(run_id):
         if not file_path:
             return jsonify({'error': 'Missing file parameter'}), 400
         
-        # Security: ensure the file path is within the expected directory structure
-        # and doesn't contain path traversal attempts
-        if '..' in file_path or file_path.startswith('/'):
+        # Resolve under the run directory and refuse anything that escapes it.
+        #
+        # The previous check tested for '..' and a leading '/'. An absolute Windows
+        # path satisfies neither, and os.path.join DISCARDS everything before an
+        # absolute second argument -- so the run directory vanished and the file was
+        # read and returned. Confirmed against the running app on 05.09.2026: a bait
+        # file outside data/output came back HTTP 200 with its contents.
+        #
+        # The run id is validated too. It was interpolated into the path unchecked
+        # while only the file parameter was examined.
+        if not re.fullmatch(r'run_[0-9]{8}_[0-9]{6}(?:_[A-Za-z0-9]{1,8})?', run_id or ''):
+            return jsonify({'error': 'Invalid run id'}), 400
+
+        try:
+            full_file_path = ISEEWebDemo.resolve_inside(
+                Path('data/output'), run_id, file_path)
+        except ValueError:
             return jsonify({'error': 'Invalid file path'}), 403
-        
-        # Construct full path to the raw response file
-        run_directory = f"data/output/{run_id}"
-        full_file_path = os.path.join(run_directory, file_path)
-        
+
         if not os.path.exists(full_file_path):
             return jsonify({'error': f'File not found: {file_path}'}), 404
         
@@ -3167,6 +3209,33 @@ def about():
     except Exception as e:
         logger.error(f"Error loading about page: {e}")
         return render_template('about.html', content="<p>Error loading about content.</p>")
+
+@app.route('/runs')
+def runs_archive():
+    """Overview of past runs and what each one produced - the owner asked for this
+    on 02.09.2026 (docs/todos/2026-09-02-offene-punkte.md, section 1.1); the data
+    was already on disk, only the page was missing.
+
+    Its own page rather than folding into the Cognitive Diversity Explorer, per
+    that todo's design decision: the Explorer is already a second, separately
+    styled interface, and a third would be worse than one small page that links
+    into both. This route only renders the shell; /api/runs supplies the data,
+    which is what keeps the route a one-liner and the summarising logic in
+    run_archive.py testable without a server (see tests/test_run_archive.py).
+    """
+    return render_template('run_archive.html')
+
+@app.route('/api/runs')
+def api_runs():
+    """JSON summaries of every past run, newest first.
+
+    All reading and summarising happens in run_archive.py's pure functions -
+    this route exists only to call list_run_summaries and return the result, so
+    that logic has exactly one caller-independent implementation instead of one
+    copy here and a second, inevitably-drifting one under test.
+    """
+    from run_archive import list_run_summaries
+    return jsonify(list_run_summaries(Path('data/output')))
 
 if __name__ == '__main__':
     import os
