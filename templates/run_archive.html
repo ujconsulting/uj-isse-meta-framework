@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Archive - ISEE Meta Framework</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Reuses the site-wide palette (design-tokens.css) so this page matches the
+         main interface's colours without inheriting main.css/components.css, which
+         were built for isee-ui.html's single-page layout and are not a safe base
+         for a standalone page. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-tokens.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--color-bg-secondary, #fafafa);
+            color: var(--color-text-primary, #1a202c);
+            line-height: 1.5;
+        }
+
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem 4rem;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--color-text-primary, #1a202c);
+        }
+
+        .page-header .back-link {
+            font-size: 0.9rem;
+            color: var(--color-primary-solid, #4b5563);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .page-header .back-link:hover { text-decoration: underline; }
+
+        .subtitle {
+            color: var(--color-text-tertiary, #6b7280);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Runtime English/German toggle, in the spirit of isee-ui.html's own
+           I18N_DE layer (see that file's comment on why it is a runtime text
+           swap rather than data-i18n attributes on every element) - but scoped
+           to this page's own, much smaller dictionary rather than sharing that
+           file's, which lives in a different template entirely. */
+        #lang-toggle {
+            border: 1px solid var(--color-neutral-300, #d1d4dc);
+            background: var(--color-bg-primary, #fff);
+            color: var(--color-text-secondary, #374151);
+            border-radius: 6px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        #lang-toggle:hover { background: var(--color-bg-tertiary, #f5f5f7); }
+
+        #status-line {
+            color: var(--color-text-tertiary, #6b7280);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .run-card {
+            background: var(--color-bg-primary, #fff);
+            border: 1px solid var(--color-neutral-200, #e8e9f0);
+            border-radius: 10px;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .run-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .run-timestamp {
+            font-weight: 600;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.95rem;
+        }
+
+        .run-id {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: var(--color-text-muted, #9ca3af);
+        }
+
+        .run-query {
+            font-size: 1rem;
+            color: var(--color-text-primary, #1a202c);
+            margin-bottom: 0.75rem;
+            font-style: italic;
+        }
+
+        .run-query.is-missing {
+            color: var(--color-text-muted, #9ca3af);
+            font-style: normal;
+        }
+
+        .run-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.25rem;
+            margin-bottom: 0.9rem;
+            font-size: 0.85rem;
+        }
+
+        .run-stats .stat .label {
+            color: var(--color-text-tertiary, #6b7280);
+            margin-right: 0.3rem;
+        }
+
+        /* A value this page never learned is rendered in this muted, italic
+           style everywhere - the one visual rule that carries the whole
+           "absence must not look like a value" requirement. */
+        .value-missing {
+            color: var(--color-text-muted, #9ca3af);
+            font-style: italic;
+        }
+
+        .value-failed {
+            color: var(--color-cost-premium, #b91c1c);
+            font-weight: 600;
+        }
+
+        .artifact-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .artifact-links a {
+            font-size: 0.78rem;
+            color: var(--color-primary-solid, #4b5563);
+            background: var(--color-bg-tertiary, #f5f5f7);
+            border-radius: 5px;
+            padding: 0.25rem 0.6rem;
+            text-decoration: none;
+        }
+        .artifact-links a:hover { background: var(--color-neutral-200, #e8e9f0); }
+
+        .artifact-links .missing {
+            font-size: 0.78rem;
+            color: var(--color-text-muted, #9ca3af);
+            background: transparent;
+            border: 1px dashed var(--color-neutral-300, #d1d4dc);
+            border-radius: 5px;
+            padding: 0.25rem 0.6rem;
+        }
+
+        .empty-state, .error-state {
+            padding: 2rem;
+            text-align: center;
+            color: var(--color-text-tertiary, #6b7280);
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="page-header">
+            <div>
+                <h1 data-en="Run Archive" data-de="Lauf-Archiv">Run Archive</h1>
+                <div class="subtitle" data-en="Every past ISEE analysis, newest first, with what it produced and what it cost."
+                     data-de="Alle bisherigen ISEE-Analysen, neueste zuerst, mit ihren Ergebnissen und Kosten.">
+                    Every past ISEE analysis, newest first, with what it produced and what it cost.
+                </div>
+            </div>
+            <div style="display:flex; align-items:flex-start; gap:0.75rem;">
+                <button id="lang-toggle" type="button">Deutsch</button>
+                <a class="back-link" href="/isee-ui" data-en="&larr; Back to ISEE" data-de="&larr; Zurück zu ISEE">&larr; Back to ISEE</a>
+            </div>
+        </div>
+
+        <div id="status-line" data-en="Loading runs…" data-de="Läufe werden geladen…">Loading runs…</div>
+        <div id="run-list"></div>
+    </div>
+
+    <script>
+    /* ---------------------------------------------------------------------
+     * Minimal English/German toggle for this page only.
+     *
+     * isee-ui.html retranslates the whole document at runtime by matching
+     * English text nodes against a several-hundred-entry dictionary (see its
+     * own comment on why: one 4,500-line file, tagging every element would
+     * touch far more than the feature is worth). This page is a few hundred
+     * lines with its own template, so the simpler, standard approach applies
+     * instead: elements that need translation carry data-en/data-de, and
+     * server-fetched content (the run cards) is built with both strings baked
+     * into small helper functions rather than retranslated after the fact.
+     * ------------------------------------------------------------------- */
+    let currentLang = 'en';
+
+    function applyStaticTranslations() {
+        document.querySelectorAll('[data-en]').forEach((el) => {
+            const text = currentLang === 'de' ? el.getAttribute('data-de') : el.getAttribute('data-en');
+            if (text !== null) el.innerHTML = text;
+        });
+    }
+
+    document.getElementById('lang-toggle').addEventListener('click', () => {
+        currentLang = currentLang === 'en' ? 'de' : 'en';
+        document.getElementById('lang-toggle').textContent = currentLang === 'en' ? 'Deutsch' : 'English';
+        applyStaticTranslations();
+        renderRuns(lastRuns);
+    });
+
+    const LABELS = {
+        combinations: { en: 'Combinations', de: 'Kombinationen' },
+        succeeded: { en: 'succeeded', de: 'erfolgreich' },
+        failed: { en: 'failed', de: 'fehlgeschlagen' },
+        cost: { en: 'Cost', de: 'Kosten' },
+        notRecorded: { en: 'not recorded', de: 'nicht erfasst' },
+        unknown: { en: 'unknown', de: 'unbekannt' },
+        noQuery: { en: '(no query text recorded for this run)', de: '(keine Frage für diesen Lauf erfasst)' },
+        missing: { en: 'missing', de: 'fehlt' },
+        explore: { en: 'Explore responses', de: 'Antworten erkunden' },
+        rawResponses: { en: 'raw responses', de: 'Rohantworten' },
+        noRuns: { en: 'No runs found under data/output yet.', de: 'Noch keine Läufe unter data/output gefunden.' },
+        loadError: { en: 'Could not load the run list.', de: 'Die Laufliste konnte nicht geladen werden.' },
+        loaded: (n) => currentLang === 'de' ? `${n} Lauf(e) geladen.` : `${n} run(s) loaded.`,
+    };
+
+    function t(key) { return LABELS[key][currentLang]; }
+
+    // Every entry the archive can link to, with a human label. Keys match
+    // run_archive.py's _SINGLE_FILE_ARTIFACTS / _GLOB_ARTIFACTS exactly - this
+    // list is the one place that has to be kept in sync with that module.
+    const ARTIFACT_LABELS = [
+        ['isee_result_md', 'isee_result.md'],
+        ['isee_result_json', 'isee_result.json'],
+        ['analysis', 'analysis.md'],
+        ['run_summary', 'run_summary.md'],
+        ['metadata', 'metadata.md'],
+        ['combinations_csv', 'combinations.csv'],
+        ['ideas_csv', 'ideas.csv'],
+        ['model_performance_csv', 'model_performance.csv'],
+        ['cost_report_txt', 'cost_report.txt'],
+        ['cost_report_json', 'cost_report.json'],
+        ['queries_detailed_csv', 'queries_detailed.csv'],
+        ['queries_summary_json', 'queries_summary.json'],
+        ['domain_comparison_chart', 'domain_comparison.png'],
+        ['instruction_comparison_chart', 'instruction_comparison.png'],
+        ['model_comparison_chart', 'model_comparison.png'],
+        ['scoring_components_chart', 'scoring_components.png'],
+    ];
+
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value;
+        return div.innerHTML;
+    }
+
+    function formatCombinationCount(value) {
+        return value === null || value === undefined
+            ? `<span class="value-missing">${t('unknown')}</span>`
+            : value;
+    }
+
+    function renderCombinations(run) {
+        const total = formatCombinationCount(run.combinations_total);
+        const succeeded = formatCombinationCount(run.combinations_succeeded);
+        const failedValue = run.combinations_failed;
+        const failed = failedValue === null || failedValue === undefined
+            ? `<span class="value-missing">${t('unknown')}</span>`
+            : (failedValue > 0 ? `<span class="value-failed">${failedValue}</span>` : failedValue);
+        return `<span class="stat"><span class="label">${t('combinations')}:</span>${total} `
+            + `(${succeeded} ${t('succeeded')}, ${failed} ${t('failed')})</span>`;
+    }
+
+    function renderCost(run) {
+        const value = run.cost_usd === null || run.cost_usd === undefined
+            ? `<span class="value-missing">${t('notRecorded')}</span>`
+            : `$${run.cost_usd.toFixed(4)}`;
+        return `<span class="stat"><span class="label">${t('cost')}:</span>${value}</span>`;
+    }
+
+    function renderArtifacts(run) {
+        const items = ARTIFACT_LABELS.map(([key, label]) => {
+            const path = run.artifacts[key];
+            if (!path) {
+                return `<span class="missing">${escapeHtml(label)}: ${t('missing')}</span>`;
+            }
+            const href = `/api/download-file?path=${encodeURIComponent(path)}`;
+            return `<a href="${href}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+        });
+
+        if (run.artifacts.cognitive_diversity_explorer_url) {
+            const count = run.artifacts.raw_responses_count;
+            const countLabel = count !== null && count !== undefined ? ` (${count} ${t('rawResponses')})` : '';
+            items.unshift(
+                `<a href="${run.artifacts.cognitive_diversity_explorer_url}">${t('explore')}${countLabel}</a>`
+            );
+        }
+
+        return `<div class="artifact-links">${items.join('')}</div>`;
+    }
+
+    function renderRunCard(run) {
+        const timestamp = run.timestamp
+            ? new Date(run.timestamp).toLocaleString(currentLang === 'de' ? 'de-DE' : 'en-US')
+            : `<span class="value-missing">${t('unknown')}</span>`;
+        const queryHtml = run.query
+            ? escapeHtml(run.query)
+            : `<span>${t('noQuery')}</span>`;
+
+        return `
+            <div class="run-card">
+                <div class="run-card-header">
+                    <span class="run-timestamp">${timestamp}</span>
+                    <span class="run-id">${escapeHtml(run.run_id)}</span>
+                </div>
+                <div class="run-query ${run.query ? '' : 'is-missing'}">${queryHtml}</div>
+                <div class="run-stats">
+                    ${renderCombinations(run)}
+                    ${renderCost(run)}
+                </div>
+                ${renderArtifacts(run)}
+            </div>`;
+    }
+
+    let lastRuns = [];
+
+    function renderRuns(runs) {
+        lastRuns = runs;
+        const list = document.getElementById('run-list');
+        if (runs.length === 0) {
+            list.innerHTML = `<div class="empty-state">${t('noRuns')}</div>`;
+            document.getElementById('status-line').textContent = '';
+            return;
+        }
+        list.innerHTML = runs.map(renderRunCard).join('');
+        document.getElementById('status-line').textContent = t('loaded')(runs.length);
+    }
+
+    async function loadRuns() {
+        try {
+            const response = await fetch('/api/runs');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const runs = await response.json();
+            renderRuns(runs);
+        } catch (err) {
+            document.getElementById('run-list').innerHTML =
+                `<div class="error-state">${t('loadError')}</div>`;
+            document.getElementById('status-line').textContent = '';
+            console.error('Failed to load /api/runs:', err);
+        }
+    }
+
+    applyStaticTranslations();
+    loadRuns();
+    </script>
+</body>
+</html>
