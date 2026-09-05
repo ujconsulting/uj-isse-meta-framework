@@ -2509,6 +2509,55 @@ class ISEEGuardrails:
     TYPICAL_RESPONSE_TOKENS = 2500
     TYPICAL_PROMPT_TOKENS = 350
 
+    #: How many billed calls must be on record before the measured figure is
+    #: preferred over the constant above. Below this, one unusual run would move the
+    #: estimate more than the evidence justifies.
+    MEASURED_TOKENS_MIN_CALLS = 20
+
+    #: How many recent runs to read. Enough to smooth a single outlier, few enough
+    #: that a change of portfolio or of typical question shows up within days rather
+    #: than being averaged away.
+    MEASURED_TOKENS_RUNS = 10
+
+    @staticmethod
+    def measured_response_tokens(output_root: str = os.path.join("data", "output")):
+        """Completion tokens per call, averaged over recent runs, or None.
+
+        The constant above came from one measurement, of one query, on one day, and
+        says so. Since 03.09.2026 every run writes `cost_report.json` with the tokens
+        the provider actually billed, so the estimate can correct itself as runs
+        accumulate instead of waiting for someone to re-measure by hand.
+
+        This is a mean over per-model totals, not a median over individual calls,
+        because the stored figure is already aggregated per model per run. Returns
+        None — and the caller keeps the constant — when too little is on record;
+        a self-correcting number that corrects itself from two data points is worse
+        than an honest constant.
+        """
+        import glob
+
+        reports = sorted(glob.glob(os.path.join(output_root, "run_*", "cost_report.json")))
+        if not reports:
+            return None
+
+        completion_tokens = 0
+        calls = 0
+        for path in reports[-ISEEGuardrails.MEASURED_TOKENS_RUNS:]:
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    report = json.load(handle)
+            except (OSError, ValueError):
+                # A malformed report is skipped, never guessed at. It does not make
+                # the estimate wrong, only less well evidenced.
+                continue
+            for row in (report.get("per_model") or {}).values():
+                completion_tokens += row.get("completion_tokens") or 0
+                calls += row.get("calls") or 0
+
+        if calls < ISEEGuardrails.MEASURED_TOKENS_MIN_CALLS:
+            return None
+        return completion_tokens / calls
+
     @staticmethod
     def estimate_cost(combinations, has_api_key=True, config_path="openrouter_config.json"):
         """Estimate API cost for a number of combinations, in USD.
@@ -2534,11 +2583,18 @@ class ISEEGuardrails:
             if not priced:
                 raise ValueError("no per-model pricing in configuration")
 
+            # Prefer what previous runs were actually billed over the constant. The
+            # constant is one measurement of one query on one day and says so; the
+            # measured figure grows more trustworthy with every run, and falls back
+            # to the constant while too little is on record.
+            response_tokens = (ISEEGuardrails.measured_response_tokens()
+                               or ISEEGuardrails.TYPICAL_RESPONSE_TOKENS)
+
             # Combinations are distributed across the portfolio, so the mean per-model
             # cost is the right per-combination figure.
             per_call = sum(
                 (ISEEGuardrails.TYPICAL_PROMPT_TOKENS * p["prompt_per_mtok"]
-                 + ISEEGuardrails.TYPICAL_RESPONSE_TOKENS * p["completion_per_mtok"])
+                 + response_tokens * p["completion_per_mtok"])
                 / 1_000_000
                 for p in priced
             ) / len(priced)
