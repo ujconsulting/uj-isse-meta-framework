@@ -31,7 +31,7 @@ class TestTheCeiling(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()
-        app_module._run_starts[:] = []
+        app_module._call_starts["run"][:] = []
         self.saved_status = dict(demo.execution_status)
         demo.execution_status.clear()
         # Never actually launch anything: the thread would spawn a real subprocess
@@ -42,7 +42,7 @@ class TestTheCeiling(unittest.TestCase):
     def tearDown(self):
         demo.execution_status.clear()
         demo.execution_status.update(self.saved_status)
-        app_module._run_starts[:] = []
+        app_module._call_starts["run"][:] = []
 
     def start(self):
         return self.client.post("/api/execute", json={"query": "q"})
@@ -91,7 +91,7 @@ class TestTheCeiling(unittest.TestCase):
         response = self.client.post("/api/execute", json=None,
                                     content_type="application/json")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(app_module._run_starts, [],
+        self.assertEqual(app_module._call_starts["run"], [],
                          "a rejected request must not count against the hour")
 
 
@@ -99,10 +99,10 @@ class TestTheExecutionId(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()
-        app_module._run_starts[:] = []
+        app_module._call_starts["run"][:] = []
         mock.patch("app.threading.Thread").start()
         self.addCleanup(mock.patch.stopall)
-        self.addCleanup(lambda: app_module._run_starts.clear())
+        self.addCleanup(lambda: app_module._call_starts["run"].clear())
 
     def test_two_starts_in_the_same_second_get_different_ids(self):
         first = self.client.post("/api/execute", json={"query": "q"}).get_json()
@@ -123,3 +123,59 @@ class TestTheExecutionId(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThePaidHelperRouteIsCountedToo(unittest.TestCase):
+    """/api/suggest-domains asks Claude 3 Haiku and is billed for it.
+
+    The ceiling added earlier covered /api/execute and /api/analyze-test and missed
+    this one, so an unauthenticated caller could still spend money in a loop — just
+    more slowly. Found on 05.09.2026 the direct way: by calling the route once
+    during a check that was supposed to cost nothing, and watching the OpenRouter
+    balance move.
+
+    It has its own bucket rather than sharing the run bucket, because the interface
+    makes exactly one of these per analysis; sharing would make every analysis cost
+    two slots.
+    """
+
+    def setUp(self):
+        self.client = app.test_client()
+        for bucket in app_module._call_starts.values():
+            bucket[:] = []
+        # Never reach the network from a test.
+        self.generate = mock.patch.object(
+            demo, "_generate_dynamic_domains", return_value=[]).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def tearDown(self):
+        for bucket in app_module._call_starts.values():
+            bucket[:] = []
+
+    def suggest(self):
+        return self.client.post("/api/suggest-domains", json={"query": "q"})
+
+    def test_the_limit_refuses_the_one_too_many(self):
+        for i in range(app_module.MAX_HELPER_CALLS_PER_HOUR):
+            self.assertEqual(self.suggest().status_code, 200, f"call {i + 1} refused")
+
+        refused = self.suggest()
+
+        self.assertEqual(refused.status_code, 429)
+        self.assertEqual(
+            self.generate.call_count, app_module.MAX_HELPER_CALLS_PER_HOUR,
+            "a refused request still reached the paid model")
+
+    def test_helper_calls_do_not_consume_run_slots(self):
+        for _ in range(app_module.MAX_HELPER_CALLS_PER_HOUR):
+            self.suggest()
+
+        self.assertEqual(app_module._call_starts["run"], [],
+                         "domain suggestions ate the analysis budget")
+
+    def test_a_request_without_a_query_costs_nothing(self):
+        response = self.client.post("/api/suggest-domains", json={})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(app_module._call_starts["helper"], [])
+        self.assertEqual(self.generate.call_count, 0)

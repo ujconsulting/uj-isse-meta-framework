@@ -2207,7 +2207,19 @@ def api_preview_queries():
 MAX_CONCURRENT_RUNS = int(os.environ.get("ISEE_MAX_CONCURRENT_RUNS", "3"))
 MAX_RUNS_PER_HOUR = int(os.environ.get("ISEE_MAX_RUNS_PER_HOUR", "10"))
 
-_run_starts: List[float] = []
+# How many small paid helper calls per hour. /api/suggest-domains asks Claude 3
+# Haiku to propose knowledge domains for a query; it is cheap next to a run, but it
+# is a paid call on an unauthenticated route, and the run ceiling above did not
+# cover it. The UI makes exactly one per analysis, so 60 leaves ordinary use far
+# behind while still bounding a script.
+#
+# Found on 05.09.2026 by calling the route once during a check that was meant to
+# cost nothing.
+MAX_HELPER_CALLS_PER_HOUR = int(os.environ.get("ISEE_MAX_HELPER_CALLS_PER_HOUR", "60"))
+
+# Start timestamps per bucket, so the paid helper route is counted separately from
+# whole analyses rather than eating their slots.
+_call_starts: Dict[str, List[float]] = {"run": [], "helper": []}
 _run_starts_lock = threading.Lock()
 
 # API keys a visitor supplies, held in this process and keyed by their session id.
@@ -2257,9 +2269,7 @@ def _claim_a_run_slot() -> Optional[str]:
     """
     now = time.time()
     with _run_starts_lock:
-        del _run_starts[:max(0, len(_run_starts) - 1000)]  # bound the list
-        recent = [t for t in _run_starts if now - t < 3600]
-        _run_starts[:] = recent
+        recent = _prune("run", now)
 
         running = sum(
             1 for status in demo.execution_status.values()
@@ -2275,7 +2285,32 @@ def _claim_a_run_slot() -> Optional[str]:
                     f"which is the limit. The next slot frees in about {minutes} "
                     f"minutes, or raise ISEE_MAX_RUNS_PER_HOUR.")
 
-        _run_starts.append(now)
+        _call_starts["run"].append(now)
+        return None
+
+
+def _prune(bucket: str, now: float) -> List[float]:
+    """Drop timestamps older than an hour and return what remains.
+
+    Caller holds the lock. Bounded from above as well, so a route hammered for a
+    long time cannot grow the list without limit.
+    """
+    timestamps = _call_starts.setdefault(bucket, [])
+    del timestamps[:max(0, len(timestamps) - 1000)]
+    timestamps[:] = [t for t in timestamps if now - t < 3600]
+    return timestamps
+
+
+def _claim_a_helper_slot() -> Optional[str]:
+    """Reserve permission for one small paid helper call, or say why not."""
+    now = time.time()
+    with _run_starts_lock:
+        recent = _prune("helper", now)
+        if len(recent) >= MAX_HELPER_CALLS_PER_HOUR:
+            return (f"{len(recent)} domain suggestions have been requested in the "
+                    f"last hour, which is the limit. Raise "
+                    f"ISEE_MAX_HELPER_CALLS_PER_HOUR if that is too few.")
+        recent.append(now)
         return None
 
 
@@ -2830,7 +2865,14 @@ def api_suggest_domains():
         
         if not query:
             return jsonify({"error": "Query is required"}), 400
-        
+
+        # This route asks a model, and that model is billed. Cheap per call, but
+        # unbounded on an unauthenticated route until now.
+        refusal = _claim_a_helper_slot()
+        if refusal:
+            demo.logger.warning(f"Refused a domain suggestion: {refusal}")
+            return jsonify({"error": refusal}), 429
+
         # Use a lightweight model to analyze query and suggest domains
         suggested_domains = demo._generate_dynamic_domains(query)
         

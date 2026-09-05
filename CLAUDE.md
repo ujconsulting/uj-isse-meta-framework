@@ -406,6 +406,11 @@ GLOBANT_BASE_URL=https://api.saia.ai
 # thing bounding what a caller can run up. Defaults: 3 and 10.
 # ISEE_MAX_CONCURRENT_RUNS=3
 # ISEE_MAX_RUNS_PER_HOUR=10
+
+# /api/suggest-domains asks Claude 3 Haiku for knowledge domains and is billed
+# for it — cheap per call, but paid, and on the same unauthenticated interface.
+# The UI makes one per analysis. Default: 60.
+# ISEE_MAX_HELPER_CALLS_PER_HOUR=60
 ```
 
 ### Execution Settings
