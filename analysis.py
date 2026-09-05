@@ -331,12 +331,26 @@ class ResultAnalyzer:
         best_instruction_idx = instruction_perf['avg_score'].idxmax()
         results["top_performers"]["best_instruction"] = instruction_perf.iloc[best_instruction_idx].to_dict()
         
-        # Analyze scoring components
-        score_components = [col for col in self.combinations_df.columns 
-                           if col not in ['combination_id', 'model_id', 'model_name', 'instruction_id', 
-                                         'domain_id', 'query_id', 'executed', 'response_length', 
-                                         'execution_time', 'overall_score']]
-        
+        # Analyze scoring components.
+        #
+        # The list below says which columns are NOT scores, so any column added to
+        # combinations.csv later is treated as one by default. That is backwards, and
+        # it broke: a `status` column ("succeeded" / "failed" / "not_executed") was
+        # added on 03.09.2026 and the next full run died on
+        # `TypeError: Cannot perform reduction 'mean' with string dtype` — after the
+        # models had already been called and paid for, while writing the analysis.
+        #
+        # Keeping the exclusion list for the numeric columns that are not scores
+        # (response_length, execution_time), and then taking only the numeric
+        # remainder, means a new text column is ignored instead of averaged.
+        not_a_score = {'combination_id', 'model_id', 'model_name', 'instruction_id',
+                       'domain_id', 'query_id', 'executed', 'response_length',
+                       'execution_time', 'overall_score'}
+        candidates = [col for col in self.combinations_df.columns if col not in not_a_score]
+        score_components = list(
+            self.combinations_df[candidates].select_dtypes(include="number").columns
+        )
+
         if score_components:
             component_avgs = self.combinations_df[score_components].mean().to_dict()
             results["scoring_components"] = component_avgs
