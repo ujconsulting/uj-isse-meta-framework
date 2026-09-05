@@ -3040,7 +3040,7 @@ def extract_cognitive_diversity():
         execution_id = data.get('execution_id')
         
         if not execution_id:
-            return jsonify({'success': False, 'error': 'No execution ID provided'})
+            return jsonify({'success': False, 'error': 'No execution ID provided'}), 400
         
         # Get run directory from execution status (handles exec_* -> run_* mapping)
         execution_status = demo.execution_status.get(execution_id, {})
@@ -3049,48 +3049,36 @@ def extract_cognitive_diversity():
         if not run_directory:
             # Fallback: try direct execution_id if it's already in run_* format
             if execution_id.startswith('run_'):
-                run_directory = f"data/output/{execution_id}"
+                # Resolved under data/output, not interpolated into it: this id comes
+                # straight from the request body.
+                try:
+                    run_directory = str(ISEEWebDemo.resolve_inside(
+                        Path("data/output"), execution_id))
+                except ValueError:
+                    return jsonify({'success': False, 'error': 'Invalid run id'}), 400
             else:
-                return jsonify({'success': False, 'error': f'Run directory not found for execution: {execution_id}'})
+                return jsonify({'success': False, 'error': f'Run directory not found for execution: {execution_id}'}), 404
         
         if not os.path.exists(run_directory):
-            # Additional fallback: look for similar run directories with close timestamps
-            if execution_id.startswith('run_'):
-                # Extract date prefix (run_YYYYMMDD_) and look for runs within a few minutes
-                import glob
-                date_prefix = execution_id[:13]  # run_YYYYMMDD_
-                time_part = execution_id[13:]    # HHMMSS
-                
-                if len(time_part) == 6:  # HHMMSS format
-                    pattern = f"data/output/{date_prefix}*"
-                    matching_dirs = glob.glob(pattern)
-                    
-                    # Find the closest timestamp
-                    if matching_dirs:
-                        target_time = int(time_part)
-                        closest_dir = None
-                        min_diff = float('inf')
-                        
-                        for dir_path in matching_dirs:
-                            dir_name = os.path.basename(dir_path)
-                            if len(dir_name) >= 19:  # run_YYYYMMDD_HHMMSS
-                                dir_time_str = dir_name[13:19]
-                                try:
-                                    dir_time = int(dir_time_str)
-                                    time_diff = abs(dir_time - target_time)
-                                    if time_diff < min_diff and time_diff <= 300:  # Within 5 minutes
-                                        min_diff = time_diff
-                                        closest_dir = dir_path
-                                except ValueError:
-                                    continue
-                        
-                        if closest_dir:
-                            run_directory = closest_dir
-                            demo.logger.info(f"Found close timestamp match: {execution_id} -> {os.path.basename(closest_dir)}")
-            
-            if not os.path.exists(run_directory):
-                return jsonify({'success': False, 'error': f'Run directory does not exist: {run_directory}'})
-        
+            # No fallback to "a run with a nearby timestamp".
+            #
+            # This searched data/output for a run whose HHMMSS was numerically
+            # within 300 of the requested one and used that instead. Two things
+            # wrong with it. It answered an unresolvable id with a DIFFERENT run --
+            # the fourth place on this branch doing that -- and here the substituted
+            # run is then WRITTEN to, because extraction produces files inside it.
+            # A caller asking about one run could rewrite the index of another.
+            #
+            # And the arithmetic never meant what it says: HHMMSS is not a
+            # quantity, so `abs(dir_time - target_time) <= 300` is not "within five
+            # minutes". 195900 and 200000 differ by 100 and are one minute apart;
+            # 195959 and 200000 differ by 41 and are one second apart.
+            # The id, not the absolute path. The path answered with the machine's
+            # directory layout ("D:\Dokumente\Projekte\...") to anyone who asked
+            # about a run that does not exist, which is a free map of the filesystem.
+            return jsonify({'success': False,
+                            'error': f'No run named {execution_id}'}), 404
+
         # Extract run_id from directory path for the response
         run_id = os.path.basename(run_directory)
         
@@ -3101,9 +3089,20 @@ def extract_cognitive_diversity():
         
         # Enhanced subprocess call with better error handling
         try:
-            result = subprocess.run([
-                sys.executable, script_path, run_directory
-            ], capture_output=True, text=True, cwd=os.getcwd(), timeout=300)
+            # encoding and errors, not bare text=True. text=True decodes the pipe
+            # with the platform default -- cp1252 here -- and the extractor's output
+            # is full of emoji, so subprocess's reader thread died with
+            # UnicodeDecodeError. The call still returned 0 and looked fine, but
+            # result.stdout and result.stderr were then unusable: had the extraction
+            # actually failed, the branch below would have had nothing to report.
+            # A diagnostic path that breaks exactly when it is needed.
+            #
+            # This mirrors what the main run's subprocess already does in
+            # execute_isee_command.
+            result = subprocess.run(
+                [sys.executable, script_path, run_directory],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=os.getcwd(), timeout=300)
             
             if result.returncode == 0:
                 return jsonify({'success': True, 'run_id': run_id})
@@ -3116,44 +3115,90 @@ def extract_cognitive_diversity():
                     detailed_error += f', STDOUT: {result.stdout}'
                 demo.logger.error(f"Cognitive diversity extraction failed: {detailed_error}")
                 
-                # Return user-friendly error message
+                # A short reason for the caller; the traceback stays in the log.
+                #
+                # The last branch used to append 200 characters of raw stderr, which
+                # is how a Python traceback -- absolute paths, module layout, local
+                # variables in the message -- reached anyone who could provoke a
+                # failure. The log above keeps all of it for whoever is debugging.
                 user_error = 'Cognitive diversity extraction failed'
-                if 'FileNotFoundError' in str(result.stderr):
-                    user_error += ': Required files not found'
-                elif 'ModuleNotFoundError' in str(result.stderr):
-                    user_error += ': Missing Python dependencies'
-                elif 'PermissionError' in str(result.stderr):
-                    user_error += ': File permission denied'
+                stderr = str(result.stderr)
+                if 'FileNotFoundError' in stderr:
+                    user_error += ': required files not found'
+                elif 'ModuleNotFoundError' in stderr:
+                    user_error += ': missing Python dependencies'
+                elif 'PermissionError' in stderr:
+                    user_error += ': file permission denied'
                 else:
-                    user_error += f': {result.stderr[:200] if result.stderr else "Unknown error"}'
-                    
-                return jsonify({'success': False, 'error': user_error})
+                    user_error += '. The server log has the details.'
+
+                return jsonify({'success': False, 'error': user_error}), 500
                 
         except subprocess.TimeoutExpired:
             error_msg = 'Extraction timed out after 5 minutes'
             demo.logger.error(error_msg)
-            return jsonify({'success': False, 'error': error_msg})
+            return jsonify({'success': False, 'error': error_msg}), 504
         except FileNotFoundError as e:
-            error_msg = f'Script not found: {script_path}. Error: {str(e)}'
-            demo.logger.error(error_msg)
-            return jsonify({'success': False, 'error': error_msg})
+            # The script path is a server path; the caller gets the fact, the log
+            # gets the location.
+            demo.logger.error(f'Extractor not found at {script_path}: {e}')
+            return jsonify({'success': False,
+                            'error': 'The extractor is missing on the server'}), 500
         except Exception as e:
-            error_msg = f'Subprocess error: {str(e)}'
-            demo.logger.error(error_msg)
-            return jsonify({'success': False, 'error': error_msg})
-            
+            demo.logger.exception(f'Subprocess error during extraction: {e}')
+            return jsonify({'success': False,
+                            'error': 'Extraction could not be started'}), 500
+
     except Exception as e:
-        demo.logger.error(f"Error extracting cognitive diversity: {e}")
-        return jsonify({'success': False, 'error': str(e)})
+        demo.logger.exception(f"Error extracting cognitive diversity: {e}")
+        return jsonify({'success': False,
+                        'error': 'Extraction failed. The server log has the details.'}), 500
 
 @app.route('/cognitive_diversity_explorer/<run_id>')
 def cognitive_diversity_explorer(run_id):
     """Serve the cognitive diversity explorer for a specific run"""
-    run_directory = f"data/output/{run_id}"
+    # The id was interpolated into a path unchecked. Flask's default converter will
+    # not let it contain a slash, so this was never the traversal that /api/raw-
+    # response had -- but "not exploitable today" is a property of the converter,
+    # not of this code, and the sibling route was fixed hours ago. Same helper.
+    try:
+        run_directory = str(ISEEWebDemo.resolve_inside(Path("data/output"), run_id))
+    except ValueError:
+        return "Invalid run id", 400
     index_file = f"{run_directory}/cognitive_diversity_index.json"
-    
+
     if not os.path.exists(index_file):
-        return "Cognitive diversity data not found. Please extract metadata first.", 404
+        # Build it, rather than telling the visitor to run a script.
+        #
+        # This answered 404 with "Please extract metadata first." for every run,
+        # because nothing in either interface ran the extractor unless the user
+        # pressed one particular button after one particular analysis. Any link that
+        # arrived another way -- the run archive, a bookmark, a second visit --
+        # landed on that message, and the feature looked broken because it was.
+        #
+        # The route already builds its HTML on demand, so building the index it
+        # needs is the same bargain. Idempotent, bounded by the extractor's own
+        # timeout, and only for a run that actually has responses to index.
+        if not os.path.isdir(os.path.join(run_directory, "raw_responses")):
+            return "This run has no raw responses to explore.", 404
+
+        demo.logger.info(f"Extracting cognitive diversity metadata for {run_id}")
+        try:
+            extraction = subprocess.run(
+                [sys.executable,
+                 os.path.join(os.getcwd(), 'cognitive_diversity_extractor.py'),
+                 run_directory],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=os.getcwd(), timeout=300)
+        except (subprocess.TimeoutExpired, OSError) as e:
+            demo.logger.error(f"Extraction for {run_id} could not run: {e}")
+            return "Could not prepare this run for exploration.", 500
+
+        if extraction.returncode != 0 or not os.path.exists(index_file):
+            demo.logger.error(
+                f"Extraction for {run_id} failed ({extraction.returncode}): "
+                f"{extraction.stderr[-2000:]}")
+            return "Could not prepare this run for exploration.", 500
     
     # Serve the cognitive diversity explorer HTML
     explorer_html = f"{run_directory}/cognitive_diversity_explorer.html"
@@ -3203,7 +3248,11 @@ def cognitive_diversity_explorer(run_id):
 @app.route('/api/cognitive_diversity_data/<run_id>')
 def cognitive_diversity_data(run_id):
     """Serve cognitive diversity data as JSON API"""
-    index_file = f"data/output/{run_id}/cognitive_diversity_index.json"
+    try:
+        index_file = str(ISEEWebDemo.resolve_inside(
+            Path("data/output"), run_id, "cognitive_diversity_index.json"))
+    except ValueError:
+        return jsonify({'error': 'Invalid run id'}), 400
     
     if not os.path.exists(index_file):
         return jsonify({'error': 'Cognitive diversity data not found'}), 404

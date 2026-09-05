@@ -7,7 +7,29 @@ Transforms raw responses into rich, explorable cognitive diversity data.
 import json
 import os
 import re
+import sys
 import csv
+
+# Print an emoji and this script dies. Its output is a TTY when run by hand, which
+# copes; when it is a PIPE — which is exactly how `app.py` runs this file
+# (subprocess.run(..., capture_output=True)) — Windows falls back to cp1252 and the
+# first emoji raises UnicodeEncodeError.
+#
+# It did, and the consequence was larger than a missing line of output. The crash
+# lands on the "Processed N responses successfully" print, which sits BEFORE
+# save_index — so the index file was never written, the extractor exited non-zero,
+# and app.py reported "Cognitive diversity extraction failed" with a traceback about
+# a checkmark. Then the error handler crashed too, printing a cross.
+#
+# Measured on 05.09.2026: not one run under data/output had an index, and the
+# Cognitive Diversity Explorer could not open a single one of them. The identical
+# guard has been at the top of main.py since this branch started; the file app.py
+# actually pipes never got it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Tuple

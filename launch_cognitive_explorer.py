@@ -26,7 +26,12 @@ class CognitiveDiversityHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             
             try:
-                with open(self.index_file, 'r') as f:
+                # Every open in this file names its encoding. Without it Python uses
+                # the platform default -- cp1252 on this machine -- and the explorer
+                # HTML, which is full of framework emoji, failed to decode at byte
+                # 20231. The route caught that and returned 500, so the page could
+                # not be built for any run even once the index existed.
+                with open(self.index_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 self.wfile.write(json.dumps(data).encode('utf-8'))
             except Exception as e:
@@ -83,7 +88,7 @@ def create_enhanced_web_interface(index_file: str, output_file: str):
     
     # Read the base template
     template_file = Path(__file__).parent / "cognitive_diversity_web.html"
-    with open(template_file, 'r') as f:
+    with open(template_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
     # Replace the sample data loading with real API call
@@ -146,7 +151,7 @@ def create_enhanced_web_interface(index_file: str, output_file: str):
     )
     
     # Write the enhanced interface
-    with open(output_file, 'w') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(content)
 
 def launch_explorer(run_directory: str, port: int = 8080):
@@ -181,7 +186,7 @@ def launch_explorer(run_directory: str, port: int = 8080):
             print(f"📊 Data source: {index_file}")
             print(f"🌐 Server running at: http://localhost:{port}")
             print(f"📱 Interface: http://localhost:{port}/cognitive_diversity_explorer.html")
-            print(f"🔍 Ready to explore {len(json.load(open(str(index_file)))['responses'])} responses!")
+            print(f"🔍 Ready to explore {len(json.load(open(str(index_file), encoding='utf-8'))['responses'])} responses!")
             print(f"=" * 40)
             print(f"Press Ctrl+C to stop the server")
             
