@@ -720,10 +720,16 @@ class ISEEWebDemo:
                 self.logger.debug(f"Added {len(processed_models)} specific models to command")
             
             # Add execution settings using converted parameters
-            if converted_params.get("variations"):
+            # `is not None`, not truthiness. A requested 0 is a request, not an
+            # absence: `if params.get('variations')` dropped the flag for 0 exactly
+            # as it does for a missing key, so argparse fell back to its own default
+            # of 2. Asking for no variations produced two of them — three queries
+            # instead of one, and the paid calls that go with them. The opposite of
+            # what was asked, and invisible.
+            if converted_params.get("variations") is not None:
                 cmd.extend(["--variations", str(converted_params["variations"])])
             
-            if converted_params.get("max_combinations"):
+            if converted_params.get("max_combinations") is not None:
                 cmd.extend(["--max-combinations", str(converted_params["max_combinations"])])
             
             # Sampling method removed - now uses optimal default (exhaustive + balanced-models)
