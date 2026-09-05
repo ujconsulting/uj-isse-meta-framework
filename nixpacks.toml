@@ -1,5 +1,20 @@
 [start]
-cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 300 --access-logfile - --error-logfile - app:app"
+# --workers 1, deliberately, and it must stay 1.
+#
+# A run's status lives in `execution_status`, a plain dict in the worker's own
+# memory. With two workers those are two separate dicts in two separate
+# processes: a run started on worker A is invisible to a status poll routed to
+# worker B, which answers "not_found" for a run that is very much alive. The
+# admission lock that keeps one run at a time is per-process for the same reason.
+#
+# This was measured on 03.09.2026 while planning the engine seam
+# (docs/plans/2026-09-03-engine-naht.md, section 0). It is a defect in this
+# deployment as it stands, not something the refactor introduces.
+#
+# Serving concurrent runs correctly needs shared state (Redis, a database) and is
+# its own piece of work. Until then more workers make the interface less correct,
+# not faster.
+cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --access-logfile - --error-logfile - app:app"
 
 [variables]
 PORT = "8080"

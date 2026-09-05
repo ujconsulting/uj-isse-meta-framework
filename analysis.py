@@ -6,6 +6,23 @@ It generates insights about model performance, domains, and instruction template
 """
 
 import os
+
+import matplotlib
+
+# Pick the non-interactive backend BEFORE pyplot is imported, and never after.
+#
+# Today the charts are drawn in a subprocess, on its main thread, where whatever
+# backend matplotlib guesses happens to work. The web interface is moving to
+# calling the engine directly (docs/plans/2026-09-03-engine-naht.md, risk R1),
+# and then this runs on a Flask worker thread instead — where an interactive
+# backend is not usable and fails in ways that are awkward to trace back here.
+#
+# `Agg` writes files and needs no display, which is all this module ever does.
+# It is set here rather than centrally because this is the only module in the
+# tree that imports pyplot at all (checked: no other non-archive, non-test file
+# does), so there is exactly one import order to get right.
+matplotlib.use("Agg")
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict, List, Any, Optional, Tuple

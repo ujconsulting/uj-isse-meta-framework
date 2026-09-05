@@ -21,6 +21,21 @@ import hashlib
 # on its own got a database created and then a crash on the success message.
 logger = logging.getLogger(__name__)
 
+#: Seconds a write waits for another writer before giving up.
+#:
+#: sqlite3 defaults to 5 seconds, and the two trackers are about to be written
+#: from a process that also serves HTTP: the web interface is moving to calling
+#: the engine in-process (docs/plans/2026-09-03-engine-naht.md, risk R9), so a
+#: run's ingest and a request handler can reach the same file at the same time.
+#: Without a wait the loser gets `sqlite3.OperationalError: database is locked`
+#: and the run's performance data is simply lost — silently, because ingest
+#: failures are already tolerated.
+#:
+#: Each call opens its own connection and closes it again, so a generous wait
+#: costs nothing when there is no contention.
+DB_BUSY_TIMEOUT_SECONDS = 30
+
+
 class PerformanceTracker:
     def __init__(self, db_path: str = "data/performance_tracking.db"):
         self.db_path = db_path
@@ -28,7 +43,7 @@ class PerformanceTracker:
     
     def init_database(self):
         """Initialize SQLite database with performance tracking tables"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS)
         cursor = conn.cursor()
         
         # Test runs table
@@ -198,7 +213,7 @@ class PerformanceTracker:
         # Calculate execution time from run_id timestamp
         execution_time = self._calculate_execution_time(run_dir)
         
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS)
         cursor = conn.cursor()
         
         try:
@@ -317,7 +332,7 @@ class PerformanceTracker:
     
     def get_collection_performance_summary(self, collection_name: str = None) -> pd.DataFrame:
         """Get performance summary for collections"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS)
         
         query = '''
             SELECT collection_name, COUNT(*) as test_count,
@@ -339,7 +354,7 @@ class PerformanceTracker:
     
     def get_model_trends(self, model_id: str = None, days: int = 30) -> pd.DataFrame:
         """Get model performance trends"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS)
         
         query = '''
             SELECT mp.model_id, mp.model_name, mp.model_provider,
@@ -361,7 +376,7 @@ class PerformanceTracker:
     
     def get_performance_issues(self, severity: str = None) -> pd.DataFrame:
         """Get performance issues summary"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS)
         
         query = '''
             SELECT pi.run_id, tr.collection_name, tr.timestamp,

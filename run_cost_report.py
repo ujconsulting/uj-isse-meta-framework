@@ -207,6 +207,18 @@ def format_report(summary: Dict[str, Any], credit: Optional[Tuple[float, float, 
     return "\n".join(lines)
 
 
+class NoCostRecord(Exception):
+    """A run directory that carries no cost record at all.
+
+    Deliberately not `SystemExit`. This is a library function — `main.py` imports
+    this module — and SystemExit raised here terminates whatever called it, or,
+    inside a worker thread, kills that thread without a word. The audit of
+    03.09.2026 flagged that pattern across the tree; this instance was written in
+    the same session that flagged it. The CLI at the bottom translates it into an
+    exit code, which is the one place allowed to.
+    """
+
+
 def load_run_summary(target: str) -> dict:
     """Get a cost summary for a run, whatever shape it was written in.
 
@@ -232,8 +244,8 @@ def load_run_summary(target: str) -> dict:
         with io.open(summary_path, encoding="utf-8") as f:
             return json.load(f)
 
-    raise SystemExit(
-        f"{target} holds neither isee_result.json nor cost_report.json.\n"
+    raise NoCostRecord(
+        f"{target} holds neither isee_result.json nor cost_report.json. "
         "Runs from before 03.09.2026 recorded neither, so their cost cannot be "
         "recomputed — it was only ever printed."
     )
@@ -264,4 +276,10 @@ if __name__ == "__main__":
             print("\n(no balance: OPENROUTER_API_KEY is not set)")
         raise SystemExit(0)
 
-    print(format_report(load_run_summary(sys.argv[1]), remaining_credit()))
+    try:
+        summary = load_run_summary(sys.argv[1])
+    except NoCostRecord as exc:
+        print(exc)
+        raise SystemExit(1)
+
+    print(format_report(summary, remaining_credit()))

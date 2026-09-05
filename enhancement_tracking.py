@@ -16,6 +16,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+#: Seconds a write waits for another writer before giving up.
+#:
+#: sqlite3 defaults to 5 seconds, and the two trackers are about to be written
+#: from a process that also serves HTTP: the web interface is moving to calling
+#: the engine in-process (docs/plans/2026-09-03-engine-naht.md, risk R9), so a
+#: run's ingest and a request handler can reach the same file at the same time.
+#: Without a wait the loser gets `sqlite3.OperationalError: database is locked`
+#: and the run's performance data is simply lost — silently, because ingest
+#: failures are already tolerated.
+#:
+#: Each call opens its own connection and closes it again, so a generous wait
+#: costs nothing when there is no contention.
+DB_BUSY_TIMEOUT_SECONDS = 30
+
+
 @dataclass
 class EnhancementTracking:
     """Tracks enhancement usage and effectiveness"""
@@ -51,7 +66,7 @@ class EnhancementTracker:
         
     def _init_database(self):
         """Initialize the tracking database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             # Create enhancement sessions table
@@ -126,7 +141,7 @@ class EnhancementTracker:
         """
         enhancement_ids = []
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             for enhancement in enhancement_result.enhanced_versions:
@@ -156,7 +171,7 @@ class EnhancementTracker:
     
     def track_enhancement_selection(self, enhancement_id: str, selected: bool = True):
         """Track when a user selects an enhancement"""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             cursor.execute("""
@@ -190,7 +205,7 @@ class EnhancementTracker:
         actual_improvement = enhanced_avg_score - original_avg_score
         improvement_percentage = (actual_improvement / original_avg_score) * 100 if original_avg_score > 0 else 0
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             cursor.execute("""
@@ -212,7 +227,7 @@ class EnhancementTracker:
     
     def _update_analytics(self):
         """Update aggregated analytics for enhancement types"""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             # Get analytics by enhancement type
@@ -254,7 +269,7 @@ class EnhancementTracker:
         Returns:
             Dictionary with effectiveness metrics
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             where_clause = ""
@@ -301,7 +316,7 @@ class EnhancementTracker:
         """Generate comprehensive validation report"""
         effectiveness = self.get_enhancement_effectiveness()
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=DB_BUSY_TIMEOUT_SECONDS) as conn:
             cursor = conn.cursor()
             
             # Overall statistics
