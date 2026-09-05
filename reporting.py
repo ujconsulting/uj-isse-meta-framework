@@ -21,6 +21,26 @@ try:
 except ImportError:
     PANDAS_AVAILABLE = False
 
+#: Excel and LibreOffice both execute a cell that starts with one of these characters
+#: as a formula, not as text. Every string this module puts into a CSV cell can be a
+#: model's answer to an arbitrary user question — a response that happens to open
+#: with "=", "+", "-" or "@" becomes a live formula the moment the export is opened
+#: (CSV formula injection, an OWASP-documented class). "'@SUM(A1:A9)" run through a
+#: shell-out formula (e.g. "=cmd|'/c calc'!A1") is the canonical exploit.
+_FORMULA_LEAD_CHARS = ("=", "+", "-", "@")
+
+
+def _csv_safe(value: Any) -> Any:
+    """Prefix a formula-leading string with an apostrophe so it stays inert text.
+
+    Only strings are touched. Numbers, booleans and None pass through unchanged,
+    so this cannot turn a numeric column into a text column.
+    """
+    if isinstance(value, str) and value.startswith(_FORMULA_LEAD_CHARS):
+        return "'" + value
+    return value
+
+
 class ReportingSystem:
     """Reporting system for ISEE Framework."""
     
@@ -164,9 +184,14 @@ class ReportingSystem:
         lengths = []
         scores = []
         for combo_id, result in results.items():
-            if "response" in result:
-                lengths.append(len(result["response"]))
-            
+            # A failed result carries "response": None (see main.py's
+            # _failed_model_response) — "response" in result is true for that
+            # record too, so len(result["response"]) crashed the whole summary
+            # report the moment one combination in the run failed.
+            response_text = result.get("response")
+            if response_text is not None:
+                lengths.append(len(response_text))
+
             if combo_id in evaluations:
                 if "overall" in evaluations[combo_id]:
                     scores.append(evaluations[combo_id]["overall"])
@@ -316,9 +341,14 @@ class ReportingSystem:
         lengths = []
         scores = []
         for combo_id, result in results.items():
-            if "response" in result:
-                lengths.append(len(result["response"]))
-            
+            # A failed result carries "response": None (see main.py's
+            # _failed_model_response) — "response" in result is true for that
+            # record too, so len(result["response"]) crashed the whole summary
+            # report the moment one combination in the run failed.
+            response_text = result.get("response")
+            if response_text is not None:
+                lengths.append(len(response_text))
+
             if combo_id in evaluations:
                 if "overall" in evaluations[combo_id]:
                     scores.append(evaluations[combo_id]["overall"])
@@ -514,11 +544,16 @@ class ReportingSystem:
             domain_id = combo["domain"]
             domain_name = domain_id.replace("domain_", "").capitalize()
             
-            # Get response length and score if available
+            # Get response length and score if available. A failed combination
+            # carries "response": None, so the presence check that used to guard
+            # this ("response" in results[combo_id]) let a failed row through and
+            # crashed on len(None).
             response_length = "N/A"
-            if combo_id in results and "response" in results[combo_id]:
-                response_length = f"{len(results[combo_id]['response']):,}"
-            
+            if combo_id in results:
+                response_text = results[combo_id].get("response")
+                if response_text is not None:
+                    response_length = f"{len(response_text):,}"
+
             score = "N/A"
             if combo_id in evaluations and "overall" in evaluations[combo_id]:
                 score = f"{evaluations[combo_id]['overall']:.3f}"
@@ -575,11 +610,15 @@ class ReportingSystem:
             domain_id = combo["domain"]
             domain_name = domain_id.replace("domain_", "").capitalize()
             
-            # Get response length and score if available
+            # Get response length and score if available. Same fix as the
+            # Markdown metadata table above: a failed combination's "response"
+            # key is present but None, so this must check the value, not the key.
             response_length = None
-            if combo_id in results and "response" in results[combo_id]:
-                response_length = len(results[combo_id]["response"])
-            
+            if combo_id in results:
+                response_text = results[combo_id].get("response")
+                if response_text is not None:
+                    response_length = len(response_text)
+
             score = None
             if combo_id in evaluations and "overall" in evaluations[combo_id]:
                 score = evaluations[combo_id]["overall"]
@@ -714,15 +753,16 @@ class ReportingSystem:
         
         # Prepare the CSV data
         headers = [
-            "combination_id", 
-            "model_id", 
+            "combination_id",
+            "model_id",
             "model_name",
-            "instruction_id", 
-            "domain_id", 
+            "instruction_id",
+            "domain_id",
             "query_id",
-            "executed", 
-            "response_length", 
-            "execution_time", 
+            "executed",
+            "status",
+            "response_length",
+            "execution_time",
             "overall_score"
         ]
         
@@ -754,15 +794,31 @@ class ReportingSystem:
                 
                 # Determine if the combination was executed
                 executed = combo_id in results
-                
-                # Get response length and execution time if available
+
+                # A failed call still ran for a measurable time, but the old check
+                # here — "response" in results[combo_id] — tests key presence, and
+                # a failed combination carries an explicit "response": None (see
+                # main.py's _failed_model_response), so the key IS present. That
+                # sent every failed row into len(None), a crash the moment a run
+                # contains one failure. Duration is now read unconditionally, and
+                # response_length only when a response actually exists, so a
+                # failed-but-timed call keeps its duration instead of losing it —
+                # and instead of silently biasing per-model averages toward the
+                # calls that happened to succeed.
                 response_length = None
                 execution_time = None
-                if executed and "response" in results[combo_id]:
-                    response_length = len(results[combo_id]["response"])
-                    if "metadata" in results[combo_id]:
-                        execution_time = results[combo_id]["metadata"].get("duration")
-                
+                status = "not_executed"
+                if executed:
+                    result = results[combo_id]
+                    response_text = result.get("response")
+                    metadata = result.get("metadata") or {}
+                    execution_time = metadata.get("duration")
+                    if response_text is not None:
+                        response_length = len(response_text)
+                        status = "succeeded"
+                    else:
+                        status = "failed"
+
                 # Get evaluation scores if available
                 overall_score = None
                 criterion_scores = {}
@@ -782,19 +838,25 @@ class ReportingSystem:
                     domain_id,
                     query_id,
                     executed,
+                    status,
                     response_length,
                     execution_time,
                     overall_score
                 ]
-                
+
                 # Add scores for each criterion
                 for criterion in sorted(list(criterion_headers)):
                     row.append(criterion_scores.get(criterion))
-                
-                writer.writerow(row)
-        
+
+                # model_name and the id fields are ordinarily internal identifiers, but
+                # nothing here stops a differently-shaped upstream from putting free
+                # text (e.g. a display name copied from a config file) into any of
+                # them, and this row is the last point before it reaches disk — so
+                # every cell is defused, not just the ones known to carry model text.
+                writer.writerow([_csv_safe(v) for v in row])
+
         return file_path
-    
+
     def _generate_ideas_csv(
         self,
         synthesized_ideas: Dict[str, Any],
@@ -871,9 +933,13 @@ class ReportingSystem:
                     contributing_models,
                     synthesis_method
                 ]
-                
-                writer.writerow(row)
-        
+
+                # title and description are a model's synthesis of an arbitrary user
+                # query, not text this codebase generates — a response beginning
+                # with "=", "+", "-" or "@" opens as a live formula in Excel or
+                # LibreOffice the moment a researcher opens this export.
+                writer.writerow([_csv_safe(v) for v in row])
+
         return file_path
     
     def _generate_models_csv(
@@ -917,57 +983,74 @@ class ReportingSystem:
             else:
                 model_provider = "unknown"
             
-            # Get response length and execution time if available
+            # A failed call still ran for a measurable time, but the old check here
+            # — "response" in results[combo_id] — tests key presence, and a failed
+            # combination carries an explicit "response": None (see main.py's
+            # _failed_model_response), so the key IS present. That sent every failed
+            # row into len(None), a crash the moment a run contains one failure, and
+            # meant a model's avg_execution_time here was computed only from the
+            # calls that happened to succeed. Duration is now read unconditionally;
+            # a failed call is tallied separately so it cannot be mistaken for a
+            # fast success.
             response_length = None
-            execution_time = None
-            if "response" in results[combo_id]:
-                response_length = len(results[combo_id]["response"])
-                if "metadata" in results[combo_id]:
-                    execution_time = results[combo_id]["metadata"].get("duration")
-            
+            result = results[combo_id]
+            response_text = result.get("response")
+            metadata = result.get("metadata") or {}
+            execution_time = metadata.get("duration")
+            failed = response_text is None
+            if not failed:
+                response_length = len(response_text)
+
             # Get score if available
             score = None
             if combo_id in evaluations and "overall" in evaluations[combo_id]:
                 score = evaluations[combo_id]["overall"]
-            
-            # Add to data
+
+            # Add to data. model_name/model_provider come from the config file, but
+            # nothing stops a differently-shaped upstream from putting free text
+            # there either, and this is the last point before the value reaches a
+            # spreadsheet cell.
             model_data.append({
-                "model_id": model_id,
-                "model_name": model_name,
-                "model_provider": model_provider,
+                "model_id": _csv_safe(model_id),
+                "model_name": _csv_safe(model_name),
+                "model_provider": _csv_safe(model_provider),
                 "response_length": response_length,
                 "execution_time": execution_time,
-                "score": score
+                "score": score,
+                "failed": failed
             })
-        
+
         # Convert to pandas DataFrame and aggregate
         if not model_data:
             # If no data, create empty CSV
             with open(file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(["model_id", "model_name", "model_provider", "count", "avg_score", "avg_response_length", "avg_execution_time"])
+                writer.writerow(["model_id", "model_name", "model_provider", "count",
+                                  "failed_count", "avg_score", "avg_response_length",
+                                  "avg_execution_time"])
             return file_path
-        
+
         df = pd.DataFrame(model_data)
-        
+
         # Group by model and aggregate
         model_stats = df.groupby(["model_id", "model_name", "model_provider"]).agg({
             "model_id": "count",
+            "failed": "sum",
             "score": ["mean", "min", "max"],
             "response_length": "mean",
             "execution_time": "mean"
         }).reset_index()
-        
+
         # Flatten multi-level columns
         model_stats.columns = [
-            "model_id", "model_name", "model_provider", "count",
+            "model_id", "model_name", "model_provider", "count", "failed_count",
             "avg_score", "min_score", "max_score",
             "avg_response_length", "avg_execution_time"
         ]
-        
+
         # Save to CSV
         model_stats.to_csv(file_path, index=False)
-        
+
         return file_path
 
 def generate_reports(
