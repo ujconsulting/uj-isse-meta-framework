@@ -28,7 +28,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import app as app_module
 from app import app, demo
 
-KEY = "sk-or-v1-example-key-for-this-test-only-0000000000"
+# Not shaped like a real key. Nothing here validates the format, and a string
+# that begins "sk-or-v1-" in a public repository costs whoever finds it a
+# check to rule out. This one rules itself out.
+KEY = "NOT-A-KEY-only-a-marker-this-test-looks-for-in-the-cookie"
 
 
 def cookie_contents(client):
