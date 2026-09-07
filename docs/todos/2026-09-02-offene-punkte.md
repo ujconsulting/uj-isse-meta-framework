@@ -388,12 +388,38 @@ entspricht — darunter „Llama 3.3 70B (`awsbedrock/meta.llama3-2-11b`)", ein 
 
 ## 4. Sicherheit und Betrieb
 
+### 4.1 Meldeweg - **war laengst erledigt, letzte Meile am 07.09.2026**
+Dieser Eintrag war veraltet und hat die Lage falsch dargestellt. Tatsaechlich:
+
+- **Privates Vulnerability Reporting ist seit dem 02.09. eingeschaltet**, per API
+  geprueft (`{"enabled": true}`). Es ist eine Repo-Einstellung, unabhaengig vom Branch,
+  gilt also sofort.
+- **`SECURITY.md` gibt es seit `7bda8a4`** - aber nur auf `fix/honest-failure-reporting`.
+  GitHub liest sie vom **Standardbranch**. Nachgeprueft ueber die Contents-API:
+  auf `main` 404, auf dem Feature-Branch 2333 Bytes. Besuchern wurde also keine
+  Policy angezeigt.
+- Das wiegt hier schwerer als sonst, weil **Issues abgeschaltet sind**
+  (`has_issues: false`). Wer etwas findet, hat weder ein Issue noch einen Hinweis und
+  muesste den Security-Tab von selbst finden.
+
+Offen ist nur noch der Merge von **PR #1** (`security/policy-on-default-branch`,
+byte-identisch zur Branch-Fassung, daher spaeter konfliktfrei). Reihenfolge stimmt:
+die Tuer war offen, jetzt kommt das Schild.
+
+Eine persoenliche Adresse steht bewusst **nicht** darin - der GitHub-Kanal ist ein
+funktionierender vertraulicher Weg, und eine private Adresse in eine oeffentliche
+Datei zu schreiben ist eine eigene Entscheidung des Besitzers.
+
+<details><summary>urspruenglicher, falscher Text</summary>
+
 ### 4.1 Öffentliches Repo ohne Meldeweg
 `ujconsulting/uj-isse-meta-framework` ist **öffentlich**, hat aber weder `SECURITY.md`
 noch aktiviertes *private vulnerability reporting*. Nach der baumweiten Regel in
 `D:\Dokumente\Projekte\CLAUDE.md` gilt die Reihenfolge: **erst** das Reporting in den
 GitHub-Einstellungen einschalten, **dann** drei Zeilen `SECURITY.md`, die darauf zeigen.
 Umgekehrt entsteht ein Wegweiser ins Nichts.
+
+</details>
 
 ### 4.2 Schlüsselpräfix öffentlich im Verlauf
 In `session-summaries/SESSION-SUMMARY-2025-01-23-01.md` und `-2025-08-22-01.md` steht der
