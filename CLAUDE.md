@@ -734,3 +734,28 @@ setzen.
 
 **Prüfkatalog, Tabu-Scope im Detail und die Abnahme-Maßstäbe stehen in `AGENTS.md`** —
 nicht hier duplizieren, zwei Quellen driften.
+
+## Tasks — repo is authoritative, Jira and Confluence are mirrors
+
+Tasks live as files with frontmatter in the repo and are mirrored to Jira ISSE and into
+the Confluence space ISSE with the shared `aufgaben-spiegel` tool. Workflow, frontmatter,
+switches and edge cases: skill **`aufgaben-spiegel`** (global). Which folders here hold
+tasks and which pages go to Confluence is defined in `.claude/aufgaben-spiegel.json` —
+change it there, not in the tool.
+
+| Area | active | archive |
+|---|---|---|
+| `_repo` | `docs/todos/*.md` | `docs/todos/archiv/**/*.md` |
+
+`docs/todos/2026-09-02-offene-punkte.md` is a historical collection file, kept as-is; its
+still-open points were split into individual `docs/todos/260923_*.md` task files and it is
+explicitly excluded from the active glob. `docs/plans/**` holds plans, not tasks, and is
+mirrored to Confluence via a pattern instead.
+
+- New task: frontmatter from `aufgaben-spiegel --vorlage [status] [effort]` before the title.
+- Never hand-write or copy `id`, `ziele`, `punkte`; never delete a `pending@…` marker.
+- Done means: `status: erledigt` with evidence **and** moved to the archive.
+- `aufgaben-spiegel --check` writes nothing; `--apply` only on explicit request at the end
+  of a work unit, together with the commit.
+
+Customer names do not belong here.

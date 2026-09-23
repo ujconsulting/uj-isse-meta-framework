@@ -1,0 +1,88 @@
+{
+  "bereiche": [
+    {
+      "aktiv": [
+        "docs/todos/*.md"
+      ],
+      "archiv": [
+        "docs/todos/archiv/**/*.md"
+      ],
+      "aus": [
+        "docs/todos/2026-09-02-offene-punkte.md"
+      ],
+      "name": "_repo"
+    }
+  ],
+  "confluence": {
+    "einrichtung": {
+      "space": "56131628"
+    },
+    "muster": [
+      {
+        "eltern": "uj-isse-meta-framework",
+        "glob": "docs/plans/*.md",
+        "titel_muster": "Plan — {stamm}"
+      }
+    ],
+    "seiten": [
+      {
+        "quelle": "README.md",
+        "titel": "uj-isse-meta-framework"
+      },
+      {
+        "quelle": "CLAUDE.md",
+        "titel": "Project Rules (CLAUDE.md)"
+      },
+      {
+        "quelle": "AGENTS.md",
+        "titel": "Codex Operating Guide (AGENTS.md)"
+      },
+      {
+        "quelle": "docs/getting-started/QUICKSTART.md",
+        "titel": "Quickstart"
+      },
+      {
+        "quelle": "docs/getting-started/WHY_ISEE.md",
+        "titel": "Why ISEE"
+      },
+      {
+        "quelle": "docs/configuration/CONFIG_GUIDE.md",
+        "titel": "Configuration Guide"
+      },
+      {
+        "quelle": "docs/development/SYSTEM_OVERVIEW.md",
+        "titel": "System Overview"
+      },
+      {
+        "quelle": "docs/advanced/REPORTING_GUIDE.md",
+        "titel": "Reporting Guide"
+      }
+    ],
+    "space": "ISSE"
+  },
+  "github": "auto",
+  "jira": {
+    "einrichtung": {
+      "epics": {
+        "_repo": "ISSE-1"
+      },
+      "projekt": "10113"
+    },
+    "entschieden_modus": "label",
+    "epic_marke": "isseepic-",
+    "marke": "issesrc-",
+    "projekt": "ISSE",
+    "status": {
+      "entschieden": null,
+      "erledigt": "10167",
+      "in Arbeit": "10166",
+      "offen": "10165"
+    }
+  },
+  "kundennamen_erlaubt": false,
+  "min_version": "1.0.0",
+  "privat": false,
+  "repo_name": "uj-isse-meta-framework",
+  "revision": 8,
+  "schema": 1
+}

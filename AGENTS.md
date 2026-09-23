@@ -218,3 +218,51 @@ mittendrin.
 
 Gemessene Betriebsdetails und die Begründungen dahinter stehen im Plugin selbst:
 `~/.claude/plugins/cache/claudex-loop/claudex-loop/<version>/docs/betrieb.md`
+
+## Aufgaben — Repo führend, Jira und Confluence sind Spiegel
+
+Codex kennt weder Skills noch Hooks; deshalb stehen die Regeln hier vollständig. Aufgaben
+liegen als Dateien mit Frontmatter im Repo; das Werkzeug `aufgaben-spiegel` (Repo
+`_DIV/uj-aufgaben-spiegel`) spiegelt sie nach Jira ISSE und in den Confluence-Space ISSE.
+Beschreibung dieses Repos: `.claude/aufgaben-spiegel.json`.
+
+| Bereich | aktiv | Archiv |
+|---|---|---|
+| `_repo` | `docs/todos/*.md` | `docs/todos/archiv/**/*.md` |
+
+`docs/todos/2026-09-02-offene-punkte.md` ist eine historische Sammeldatei und bleibt
+unverändert liegen; ihre noch offenen Punkte wurden in einzelne
+`docs/todos/260923_*.md`-Aufgaben aufgeteilt, die Sammeldatei selbst ist über `aus` von
+der aktiven Glob ausgenommen. `docs/plans/**` sind Pläne, keine Aufgaben, und gehen über
+ein Muster nach Confluence.
+
+**Frontmatter** (ganz oben, nur diese Schlüssel):
+
+```yaml
+---
+id: <uuid4>          # aus `aufgaben-spiegel --vorlage`, entsteht beim Anlegen
+status: offen        # offen | entschieden | in Arbeit | erledigt
+aufwand: S           # S | M | L | S-M | M-L
+angelegt: JJJJ-MM-TT
+---
+```
+
+- `ziele` und `punkte` setzt das Werkzeug — ⛔ nie von Hand schreiben, ändern oder kopieren.
+  Eine kopierte `id` heißt: zwei Dateien, ein Ticket. `pending@…` heißt: Anlegen lief,
+  Antwort fehlt — nie löschen.
+- Kästchen der obersten Ebene (`- [ ] …`) werden eigene Unteraufgaben; die Kennung
+  `<!-- aufgabe:<uuid> -->` dahinter setzt das Werkzeug und bleibt stehen.
+- Ablauf: `offen` → `entschieden` (Auftraggeber) → `in Arbeit` (vor dem ersten Edit) →
+  `erledigt` (gebaut **und** nachgewiesen) → Datei ins Archiv verschieben. Die fette
+  Statuszeile im Text wird mitgezogen; maßgeblich ist das Frontmatter.
+- Im Archiv gilt alles als erledigt, auch nicht abgehakte Kästchen.
+
+**Spiegeln:** `aufgaben-spiegel --check` schreibt nichts. `aufgaben-spiegel --apply` nur,
+wenn der Auftraggeber es verlangt, am Ende der Arbeitseinheit. Beides braucht ausgehendes
+HTTPS, `--apply` zusätzlich Schreibrechte — in der Standard-Sandbox gesperrt, also
+freigeben lassen, nicht umgehen. Im Ziel wird nie gelöscht und nie von Hand geändert:
+Änderungen im Repo, dann `--apply`.
+
+**Cloud-Grenze:** Kennwörter, Tokens und Verbindungszeichenfolgen gehören in keine
+Aufgabe; das Werkzeug hält solche Stellen zurück (Exit 4) und nennt nur Datei und Zeile.
+Kundennamen gehören hier nicht hinein.
