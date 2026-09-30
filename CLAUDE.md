@@ -727,8 +727,8 @@ Review-Prompt wiederholen, nicht darauf vertrauen, dass Codex von selbst wegscha
 **Ablage:** Plan *und* Review-Log nach `docs/plans/JJJJ-MM-TT-<thema>[-review-log].md`,
 beides committen.
 
-**Modell-Pin:** `gpt-5.6-terra` / `model_reasoning_effort=high` (Wrapper-Vorgabe);
-⛔ nicht `sol` — reißt an echten Plänen das 10-Minuten-Ceiling. Aufruf **immer** über
+**Modell-Pin:** `gpt-6-sol` / `model_reasoning_effort=medium` (Wrapper-Vorgabe,
+seit 30.09.2026; `gpt-5.6-terra` ist abgekündigt. Die frühere Warnung „nicht `sol`" galt `gpt-5.6-sol`/high — eine Plan-Review-Runde mit `gpt-6-sol`/medium dauert gemessen ≈ 5 min; braucht codex-cli ≥ 0.156.0). Aufruf **immer** über
 `python tools/codex_ro.py`, nie direkt `codex exec`, und das Bash-Timeout auf 600000 ms
 setzen.
 

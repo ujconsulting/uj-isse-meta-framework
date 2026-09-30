@@ -206,9 +206,8 @@ python tools/codex_ro.py --prompt-file "$SCRATCH_DIR/p.txt" \
   --out-file "$SCRATCH_DIR/verdict-r1.txt" --err-file "$SCRATCH_DIR/err-r1.txt"
 ```
 
-**Modell-Pin:** `gpt-5.6-terra` mit `model_reasoning_effort="high"` (Vorgabe des
-Wrappers). ⛔ Nicht `sol` für Plan-Reviews — reißt an echten Plänen das
-10-Minuten-Ceiling. Ausnahme ist allein der Exposure-Pass von `code-review`/`audit`.
+**Modell-Pin:** `gpt-6-sol` mit `model_reasoning_effort="medium"` (Vorgabe des
+Wrappers, für jede Rolle; seit 30.09.2026; `gpt-5.6-terra` ist abgekündigt. Die frühere Warnung „nicht `sol`" galt `gpt-5.6-sol`/high — eine Plan-Review-Runde mit `gpt-6-sol`/medium dauert gemessen ≈ 5 min; braucht codex-cli ≥ 0.156.0).
 
 **Bash-Tool-Timeout auf 600000 ms setzen** — der 2-Minuten-Default killt echte Reviews
 mittendrin.
