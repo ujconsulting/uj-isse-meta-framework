@@ -1,5 +1,7 @@
 # ISEE Meta Framework
 
+**Deutsch** · [English](README.md)
+
 **Die Idea Synthesis and Extraction Engine • Plattform für systematische Mehrperspektiven-Forschung**
 
 [![Lizenz: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -36,6 +38,10 @@ http://localhost:5001/isee-ui
 Das war's. Die Oberfläche startet mit 14 kuratierten Modellen und 11 kognitiven Rahmen.
 Die Sprache wählen Sie oben rechts (`EN | DE`); beim ersten Besuch entscheidet die
 Sprache Ihres Browsers.
+
+**📥 Ergebnisse:** Nach der Analyse liegt der Befund in `isee_result.md`, der Hauptdatei. Drei
+Wege führen dorthin: schnell im Browser ansehen, Komplettpaket herunterladen oder direkt im
+Dateisystem. *Einzelheiten unter [An die Ergebnisse kommen](#-an-die-ergebnisse-kommen).*
 
 ---
 
@@ -82,6 +88,51 @@ auseinanderhält.
 
 ### Ablauf
 
+```mermaid
+flowchart LR
+    Q["✍️ Your question<br>web UI or main.py"] --> E["💰 ESTIMATE<br>combinations, cost, time<br>guardrail limits"]
+    Q -.->|"optional first:<br>validation run, 11 calls"| E
+    E -.->|"over the limit:<br>CLI stops without --force"| Q
+    E --> G["🧩 COMBINE<br>model × framework<br>× domain"]
+    G --> X["⚡ EXECUTE<br>parallel calls<br>via OpenRouter"]
+    X --> RR["raw_responses/"]
+    X -.->|"call failed"| FR["failed_responses/<br>model + HTTP status"]
+    RR --> V["📊 EVALUATE<br>score, rank,<br>top 10"]
+    V --> S["🧠 SYNTHESIZE<br>cluster-based"]
+    S --> R["isee_result.md<br>+ queries_detailed_*.csv"]
+    X --> C["🧾 COST REPORT<br>billed tokens, per model<br>and house, balance"]
+    C --> CR["cost_report.txt / .json"]
+    R --> H["✍️ You read it<br>or download the zip"]
+    FR -.->|"counted, exit 1 or 2"| H
+    R -.->|"web UI runs"| P["performance DB<br>SQLite"]
+    classDef producer fill:#d97757,stroke:#7a3a24,color:#fff
+    classDef checker fill:#10a37f,stroke:#0a6b54,color:#fff
+    classDef human fill:#e8b93e,stroke:#8a6a14,color:#1a1a1a
+    classDef artifact fill:#3d3d3d,stroke:#6b6b6b,color:#fff
+    class G,X,S producer
+    class E,V,C checker
+    class Q,H human
+    class RR,FR,R,CR,P artifact
+```
+
+*(Die Grafik bleibt bewusst englisch — sie ist mit der englischen Fassung identisch, damit beim Ändern nicht eine von beiden zurückbleibt.)*
+
+**Sie kommen an zwei Stellen ins Spiel:** Sie stellen die Frage — wahlweise nach einem
+günstigen Validierungslauf mit 11 Aufrufen — und Sie lesen das Ergebnis. Dazwischen fragt
+nichts nach. Auf der Kommandozeile halten die Guardrails einen Lauf an, dessen Schätzung die
+Grenzen überschreitet, es sei denn, Sie geben `--force` oder `--expert-mode` mit.
+
+**Orange erzeugt, Grün prüft und misst, Grau ist, was auf der Platte landet.** Die Farben
+benennen *Rollen*: Kombinieren, die Modelle aufrufen und Synthetisieren erzeugen Inhalt;
+Schätzung, Bewertung und Kostenbericht beurteilen ihn — der Kostenbericht aus den Token, die
+OpenRouter tatsächlich abgerechnet hat, nicht aus einer Annahme.
+
+**Gepunktete Kanten sind bedingt.** Ein fehlgeschlagener Aufruf landet in `failed_responses/`
+und nie in `raw_responses/`, wird also nicht bewertet; er wird in der Zusammenfassung gezählt
+und setzt den Exit-Code (`1` teilweise gescheitert, `2` nichts hat funktioniert). Die
+Laufhistorie schreiben Läufe, die aus der Weboberfläche gestartet wurden. Durchgezogene Kanten
+passieren immer.
+
 1. **Frage eingeben** — Forschungsfrage oder komplexes Problem.
 2. **„Vollanalyse starten"** — keine Parameter nötig.
 3. **Fortschritt verfolgen** — live über alle 66 Kombinationen aus Modell, Rahmen und
@@ -112,6 +163,7 @@ auseinanderhält.
 - **Ein API-Schlüssel** (OpenRouter) erreicht alle vierzehn Häuser
 - Domänen werden aus dem Kontext der Frage erzeugt
 - Mehrere Ergebnisformate, direkt ansehen oder herunterladen
+- Berichte im akademischen Stil
 
 ---
 
@@ -168,8 +220,15 @@ statt später in Authentifizierungsfehlern zu enden. Nutzen Sie `--provider open
 Vor der Vollanalyse lohnt **„Frage validieren"**: 11 gezielte Aufrufe für ~$0,12, um zu
 sehen, ob die Frage trägt.
 
+### Kuratierte Modellauswahl
+
+Die Modelle sind vorab auf kognitive Vielfalt hin ausgewählt und über unterschiedliche
+Denk- und Synthesefähigkeiten ausbalanciert. Konfigurieren muss man nichts — die Auswahl
+übernimmt das System.
+
 ### Kognitive Rahmen
 
+Jeder Rahmen beleuchtet über alle gewählten Modelle hinweg eine andere Seite der Frage:
 Analytisch, Kreativ, Kritisch, Integrativ, Pragmatisch, Erste Prinzipien, Systemisch,
 Gegenläufig, Historisch, Zukunftsgerichtet, Disruptiv.
 
@@ -194,7 +253,9 @@ Die zentrale Datei ist **`isee_result.md`**. Drei Wege führen dorthin:
 
 **2. Komplettpaket herunterladen** — Schaltfläche „Komplettpaket herunterladen". ZIP mit
 `isee_result.md`, dem vollständigen Abfrageprotokoll (`queries_detailed_*.csv`), den
-Rohdaten und allen Begleitdateien.
+Rohdaten und allen Begleitdateien. Landet im Download-Ordner als
+`isee_results_JJJJMMTT_HHMMSS.zip` — gut zum Weitergeben, für den Offline-Zugriff oder zum
+Archivieren.
 
 **3. Direkt im Dateisystem** — unter `data/output/run_JJJJMMTT_HHMMSS/`:
 
@@ -210,6 +271,10 @@ data/output/run_JJJJMMTT_HHMMSS/
 `failed_responses/` gibt es nur, wenn tatsächlich etwas fehlgeschlagen ist — und
 Fehlschläge landen **nie** in `raw_responses/`, weil sie sonst als Antworten bewertet und
 gerankt würden.
+
+**Kurz:** lesen → „Analyse ansehen (schnell)"; weitergeben → „Komplettpaket herunterladen";
+direkt auf die Dateien → `data/output/run_JJJJMMTT_HHMMSS/`. Die Datei, um die es geht, ist
+`isee_result.md`.
 
 ---
 
@@ -340,6 +405,31 @@ sichtbar machen könnte.
 - `run_cost_report.py` — was ein Lauf tatsächlich gekostet hat, aus abgerechneten Token
 - `performance_tracker.py` (446 Zeilen) — SQLite-gestützte Laufhistorie
 
+### Datenfluss
+
+Frage → Kostenschätzung → Kombinationen aus Modell, Rahmen und Domäne → Modellaufrufe mit
+Fortschritt in Echtzeit → Bewertung → Synthese und Berichte → Laufhistorie. Die Grafik unter
+[Ablauf](#ablauf) zeigt denselben Lauf mit seinen Dateien und Verzweigungen.
+
+### Technische Kernpunkte
+
+🔬 **Kognitive Vielfalt**: unterschiedliche Denkrahmen sorgen für eine Analyse jenseits der
+Grenzen einer einzelnen Perspektive.
+
+🌐 **Ein Zugang für alle Modelle**: ein OpenRouter-Schlüssel für alle vierzehn Häuser. Ein
+fehlgeschlagener Aufruf wird als Fehlschlag mit HTTP-Status festgehalten — es gibt keinen
+Rückfall, der eine Antwort erfindet.
+
+💰 **Kosten im Blick**: transparente Kostenführung und Schätzung vor dem Lauf.
+
+🎨 **Akademische Gestaltung**: eine Oberfläche, die auf Forschungskontexte zugeschnitten ist.
+
+📈 **Lernen aus Läufen**: Laufhistorie und Modell-Rankings treiben die systematische
+Verbesserung.
+
+**Umfang des Kerns**: rund 12.400 Zeilen in den oben genannten Modulen, 14
+Laufzeitabhängigkeiten in `requirements.txt`.
+
 ---
 
 ## 🚀 Entwicklung
@@ -375,6 +465,14 @@ uj-isse-meta-framework/
 └── archive/                  # Altstände
 ```
 
+### Mitwirken
+
+1. Repository forken
+2. Feature-Branch anlegen
+3. Änderungen vornehmen
+4. Gründlich über die Weboberfläche testen
+5. Pull Request einreichen
+
 ---
 
 ## 📄 Lizenz
@@ -401,8 +499,19 @@ gepflegt von UJ Consulting für den internen Forschungseinsatz.
 Ursprüngliches Werk: Copyright 2025 **Joseph Fajen**, lizenziert unter Apache-2.0. Alle
 Copyright-, Zuschreibungs- und Lizenzhinweise des Originals bleiben erhalten.
 
-Die Liste der in diesem Fork geänderten Dateien steht im englischen
-[README.md](README.md#-about-this-fork) (Hinweis nach Apache-2.0 §4(b)).
+**Änderungen in diesem Fork** (Hinweis nach Apache-2.0 §4(b) — der Fork hat sich deutlich vom
+Upstream-`main` entfernt; die Tabelle nennt nur die beiden rechtlich maßgeblichen Dateien und
+ist keine vollständige Dateiliste):
+
+| Datei | Änderung |
+| --- | --- |
+| `LICENSE` | Den 19-zeiligen Anhang-Stummel durch den vollständigen Apache-2.0-Text ersetzt; ursprüngliche Copyright-Zeile wörtlich erhalten |
+| `README.md`, `README_DE.md` | Lizenzangabe korrigiert (MIT → Apache-2.0), diesen Fork- und Änderungshinweis ergänzt; beide werden gegen den Code und gemessene Läufe sachlich aktuell gehalten |
+
+Über diese beiden Dateien hinaus sind die meisten Python-Module, die Testsuite und die
+Dokumentation seit der Abzweigung bei Commit `a35f081` weitgehend neu geschrieben. Die genaue,
+aktuelle Liste liefert `git diff --name-status a35f081...HEAD` in diesem Repository — sie ist
+immer aktueller als eine von Hand gepflegte Liste.
 
 Das Original trägt keine Verantwortung für diese Änderungen und befürwortet sie nicht.
 

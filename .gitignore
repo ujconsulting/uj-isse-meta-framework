@@ -96,3 +96,6 @@ tests/screen-shots-testing-*/
 #    und deshalb nie committet werden dürfen. SECURITY.md im Root ist bewusst NICHT
 #    betroffen (öffentlich gewollt).
 /docs/security/
+
+# Playwright-MCP-Ausgaben (Screenshots, Snapshots, Konsolenlogs) - Vorgabe 14.09.2026
+.playwright-mcp/

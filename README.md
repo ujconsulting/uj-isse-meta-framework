@@ -1,5 +1,7 @@
 # ISEE Meta Framework
 
+**English** · [Deutsch](README_DE.md)
+
 **The Idea Synthesis and Extraction Engine • Systematic Multi-Perspective Research Platform**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -68,6 +70,48 @@ Real-time identification of relevant expertise areas based on query complexity
 Cluster-based organization revealing complementary, contradictory, and emergent insights
 
 ### The Process
+
+```mermaid
+flowchart LR
+    Q["✍️ Your question<br>web UI or main.py"] --> E["💰 ESTIMATE<br>combinations, cost, time<br>guardrail limits"]
+    Q -.->|"optional first:<br>validation run, 11 calls"| E
+    E -.->|"over the limit:<br>CLI stops without --force"| Q
+    E --> G["🧩 COMBINE<br>model × framework<br>× domain"]
+    G --> X["⚡ EXECUTE<br>parallel calls<br>via OpenRouter"]
+    X --> RR["raw_responses/"]
+    X -.->|"call failed"| FR["failed_responses/<br>model + HTTP status"]
+    RR --> V["📊 EVALUATE<br>score, rank,<br>top 10"]
+    V --> S["🧠 SYNTHESIZE<br>cluster-based"]
+    S --> R["isee_result.md<br>+ queries_detailed_*.csv"]
+    X --> C["🧾 COST REPORT<br>billed tokens, per model<br>and house, balance"]
+    C --> CR["cost_report.txt / .json"]
+    R --> H["✍️ You read it<br>or download the zip"]
+    FR -.->|"counted, exit 1 or 2"| H
+    R -.->|"web UI runs"| P["performance DB<br>SQLite"]
+    classDef producer fill:#d97757,stroke:#7a3a24,color:#fff
+    classDef checker fill:#10a37f,stroke:#0a6b54,color:#fff
+    classDef human fill:#e8b93e,stroke:#8a6a14,color:#1a1a1a
+    classDef artifact fill:#3d3d3d,stroke:#6b6b6b,color:#fff
+    class G,X,S producer
+    class E,V,C checker
+    class Q,H human
+    class RR,FR,R,CR,P artifact
+```
+
+**You come in at two places:** you ask the question — optionally after a cheap validation run
+of 11 calls — and you read the result. Nothing in between asks for input. On the command line
+the guardrails stop a run whose estimate exceeds the limits, unless you pass `--force` or
+`--expert-mode`.
+
+**Orange produces, green checks and measures, grey is what lands on disk.** The colors name
+*roles*: combining, calling the models and synthesizing produce content; estimating,
+evaluating and the cost report judge it — the last one from the tokens OpenRouter actually
+billed, not from an assumption.
+
+**Dotted edges are conditional.** A failed call goes to `failed_responses/` and never into
+`raw_responses/`, so it is not scored; it is counted in the summary and sets the exit code
+(`1` some failed, `2` nothing worked). The performance record is written by runs started from
+the web UI. Solid edges always happen.
 
 1. **Enter your query**: Simply type your research question or complex problem
 2. **Click "ANALYZE WITH ISEE"**: That's it - no parameter configuration needed
@@ -308,11 +352,9 @@ Each query reveals insights across multiple cognitive clusters, ensuring compreh
 
 ### Data Flow
 
-```
-Query → Cost Estimation → Framework Selection → Domain Context → 
-Model Execution → Real-time Monitoring → Result Evaluation → 
-Synthesis & Reporting → Performance Tracking
-```
+Query → cost estimation → combinations of model, framework and domain → model execution with
+real-time monitoring → evaluation → synthesis and reporting → performance tracking. The
+diagram under [The Process](#the-process) shows the same run with its files and branches.
 
 ### Key Technical Innovations
 
